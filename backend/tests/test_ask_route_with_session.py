@@ -94,6 +94,18 @@ def test_session_ask_route_supports_mixed_scope_without_private_hits(monkeypatch
     monkeypatch.setattr("app.api.v1.endpoints.files.get_file_service", lambda: file_service)
     patch_test_auth_service(monkeypatch, db_path=tmp_path / "carbonrag.sqlite3")
 
+    def fake_stream(method: str, url: str, *, headers: dict, json: dict, timeout: float):
+        del method, url, headers, json, timeout
+        return FakeStreamingResponse(
+            status_code=200,
+            lines=[
+                'data: {"id":"chatcmpl-mixed-no-private","choices":[{"delta":{"role":"assistant","content":"当前仅检索到公共政策依据，企业样例侧暂无命中。"}}]}',
+                "data: [DONE]",
+            ],
+        )
+
+    monkeypatch.setattr("app.ai_runtime.providers.chat_openai_compatible.httpx.stream", fake_stream)
+
     register_and_login(client, prefix="ask-mixed")
     session_id = client.post("/api/v1/sessions", json={}).json()["session_id"]
     response = client.post(
