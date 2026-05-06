@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Iterable, TYPE_CHECKING
 from uuid import uuid4
 
-from app.core.config import REPO_ROOT, get_settings
 from app.files.schemas import UploadedFileResponse
 from app.knowledge.chunker import chunk_knowledge_text
 from app.knowledge.parsers import KnowledgeParseError, parse_document
@@ -22,7 +21,7 @@ from app.knowledge.schemas import (
 )
 from app.knowledge.store import KnowledgeStore
 from app.private_samples.overrides import load_private_sample_override_map, update_private_sample_override
-from app.retrieval.private_corpus_loader import load_private_sample_manifest
+from app.retrieval.private_corpus_loader import load_private_sample_manifest, resolve_private_corpus_dir
 
 if TYPE_CHECKING:
     from app.session.service import SessionService
@@ -364,14 +363,15 @@ class KnowledgeService:
         return self.store.list_my_uploads(owner_user_id=owner_user_id)
 
     def run_queued_tasks(self) -> list[KnowledgeTask]:
-        from app.knowledge.runner import get_knowledge_task_runner
-
-        processed_ids = get_knowledge_task_runner().run_once()
         tasks: list[KnowledgeTask] = []
-        for task_id in processed_ids:
-            task = self.store.get_task(task_id=task_id)
-            if task is not None:
-                tasks.append(task)
+        while True:
+            task = self.store.claim_next_task()
+            if task is None:
+                break
+            self.process_task(task_id=task.task_id)
+            refreshed = self.store.get_task(task_id=task.task_id)
+            if refreshed is not None:
+                tasks.append(refreshed)
         return tasks
 
     def process_task(self, *, task_id: str) -> None:
@@ -478,9 +478,7 @@ class KnowledgeService:
         return str(path.stat().st_mtime)
 
     def _iter_repo_private_sources(self) -> Iterable[RepoPrivateSampleSource]:
-        private_root = Path(get_settings().private_sample_dir)
-        if not private_root.is_absolute():
-            private_root = REPO_ROOT / private_root
+        private_root = resolve_private_corpus_dir()
         manifest = load_private_sample_manifest()
         for item in manifest:
             path = private_root / item.filepath

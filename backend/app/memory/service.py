@@ -26,6 +26,7 @@ def utcnow() -> datetime:
 class MemoryService:
     def __init__(self, *, store: MemoryStore | None = None, chat_provider: BaseChatProvider | None = None) -> None:
         self.store = store or get_memory_store()
+        self._chat_provider_injected = chat_provider is not None
         self.chat_provider = chat_provider or get_chat_provider()
         self.settings = get_settings()
 
@@ -162,17 +163,23 @@ class MemoryService:
                 provider_override=provider_override,
             )
         except ChatProviderError as exc:
-            self.store.update_session_memory(
-                owner_user_id=owner_user_id,
-                session_id=session_id,
-                session_summary=snapshot.session_summary,
-                summary_message_seq_upto=snapshot.summary_message_seq_upto,
-                summary_updated_at=snapshot.summary_updated_at.isoformat() if snapshot.summary_updated_at else None,
-                summary_estimated_tokens=snapshot.summary_estimated_tokens,
-                compaction_status="failed",
-                last_compaction_error=str(exc),
-            )
-            return
+            if self._should_use_local_compaction_fallback(provider_override=provider_override):
+                new_summary = self._generate_extractive_summary(
+                    existing_summary=snapshot.session_summary,
+                    messages=messages_to_compact,
+                )
+            else:
+                self.store.update_session_memory(
+                    owner_user_id=owner_user_id,
+                    session_id=session_id,
+                    session_summary=snapshot.session_summary,
+                    summary_message_seq_upto=snapshot.summary_message_seq_upto,
+                    summary_updated_at=snapshot.summary_updated_at.isoformat() if snapshot.summary_updated_at else None,
+                    summary_estimated_tokens=snapshot.summary_estimated_tokens,
+                    compaction_status="failed",
+                    last_compaction_error=str(exc),
+                )
+                return
 
         summary_updated_at = utcnow()
         self.store.update_session_memory(
@@ -225,6 +232,28 @@ class MemoryService:
             user_input="\n".join(transcript_lines),
         )
         return result.content.strip()
+
+    def _generate_extractive_summary(self, *, existing_summary: str | None, messages) -> str:
+        lines: list[str] = []
+        if existing_summary:
+            lines.append(existing_summary.strip())
+        lines.append("以下为系统在模型不可用时生成的本地会话摘要：")
+        for message in messages:
+            role_label = "用户" if message.role == "user" else "助手"
+            content = " ".join(str(message.content or "").split())
+            if len(content) > 180:
+                content = f"{content[:180].rstrip()}..."
+            if content:
+                lines.append(f"- {role_label}：{content}")
+        return "\n".join(line for line in lines if line).strip()
+
+    def _should_use_local_compaction_fallback(self, *, provider_override: LocalProviderOverride | dict | None) -> bool:
+        if self._chat_provider_injected or provider_override is not None:
+            return False
+        return (
+            self.settings.model_api_key == "replace-with-model-api-key"
+            or self.settings.model_api_base_url.rstrip("/") == "https://api.example.com/v1"
+        )
 
     def _build_memory_state(
         self,

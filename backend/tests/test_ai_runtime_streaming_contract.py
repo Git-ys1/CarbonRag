@@ -158,6 +158,23 @@ def test_session_ask_stream_contract_emits_sse_sequence(monkeypatch, tmp_path) -
     monkeypatch.setattr("app.api.v1.endpoints.sessions.get_session_service", lambda: session_service)
     monkeypatch.setattr("app.api.v1.endpoints.files.get_file_service", lambda: file_service)
 
+    def fake_stream(method: str, url: str, *, headers: dict, json: dict, timeout: float):
+        del method, url, headers, json, timeout
+        return FakeStreamingResponse(
+            status_code=200,
+            lines=[
+                'event: reasoning',
+                'data: {"id":"chatcmpl-stream-contract","choices":[{"delta":{"reasoning_content":"先检查会话上下文。"}}]}',
+                "",
+                'event: message',
+                'data: {"id":"chatcmpl-stream-contract","choices":[{"delta":{"content":"双碳目标包括碳达峰和碳中和。"}}]}',
+                "",
+                "data: [DONE]",
+            ],
+        )
+
+    monkeypatch.setattr("app.ai_runtime.providers.chat_openai_compatible.httpx.stream", fake_stream)
+
     register_and_login(client, prefix="stream-contract")
     session_id = client.post("/api/v1/sessions", json={}).json()["session_id"]
 
