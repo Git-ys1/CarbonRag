@@ -1,12 +1,27 @@
+from types import SimpleNamespace
+
+from app.memory.service import MemoryService
+from app.memory.store import MemoryStore
 from app.schemas.ask import AskCitation
 from app.session.adapters.sqlite_store import SQLiteSessionStore
 from app.session.service import SessionService
 from tests.test_helpers import create_test_user_id
 
 
+class FakeMemoryChatProvider:
+    def generate_response(self, *, system_prompt: str, user_input: str):
+        del system_prompt, user_input
+        return SimpleNamespace(content="Session summary for test context.")
+
+
 def build_session_service(tmp_path) -> SessionService:
-    store = SQLiteSessionStore(tmp_path / "carbonrag.sqlite3")
-    return SessionService(store=store)
+    db_path = tmp_path / "carbonrag.sqlite3"
+    store = SQLiteSessionStore(db_path)
+    memory_service = MemoryService(
+        store=MemoryStore(sqlite_db_path=db_path),
+        chat_provider=FakeMemoryChatProvider(),
+    )
+    return SessionService(store=store, memory_service=memory_service)
 
 
 def test_session_service_creates_default_title_and_builds_context(tmp_path) -> None:

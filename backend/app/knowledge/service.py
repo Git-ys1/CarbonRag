@@ -481,9 +481,10 @@ class KnowledgeService:
         private_root = Path(get_settings().private_sample_dir)
         if not private_root.is_absolute():
             private_root = REPO_ROOT / private_root
+        corpus_root = private_root / "corpus"
         manifest = load_private_sample_manifest()
         for item in manifest:
-            path = private_root / item.filepath
+            path = corpus_root / item.filepath
             if not path.exists():
                 continue
             yield RepoPrivateSampleSource(
