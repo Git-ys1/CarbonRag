@@ -1,7 +1,8 @@
 param(
     [switch]$Force = $true,
     [string]$HfEndpoint = "https://hf-mirror.com",
-    [string]$Proxy = ""
+    [string]$Proxy = "",
+    [switch]$UpdateAgentContext
 )
 
 $ErrorActionPreference = "Stop"
@@ -33,7 +34,8 @@ Write-Host "==> Running full GitNexus index"
 New-Item -ItemType Directory -Force -Path "logs/gitnexus" | Out-Null
 
 $forceArg = if ($Force) { "--force" } else { "" }
-gitnexus analyze $forceArg --embeddings --skills --verbose 2>&1 |
+$agentArg = if ($UpdateAgentContext) { "" } else { "--skip-agents-md" }
+gitnexus analyze $forceArg --embeddings --skills --verbose $agentArg 2>&1 |
     Tee-Object "logs/gitnexus/v1.4.7-full-index.log"
 
 Write-Host "==> Checking status"

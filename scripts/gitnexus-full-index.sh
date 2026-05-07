@@ -15,7 +15,12 @@ fi
 mkdir -p logs/gitnexus
 
 gitnexus --version
-gitnexus analyze --force --embeddings --skills --verbose \
+AGENT_ARG="--skip-agents-md"
+if [[ "${GITNEXUS_UPDATE_AGENT_CONTEXT:-0}" == "1" ]]; then
+  AGENT_ARG=""
+fi
+
+gitnexus analyze --force --embeddings --skills --verbose $AGENT_ARG \
   2>&1 | tee logs/gitnexus/v1.4.7-full-index.log
 
 gitnexus status

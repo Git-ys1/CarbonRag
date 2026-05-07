@@ -50,10 +50,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/gitnexus-full-index.
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/gitnexus-full-index.ps1 -Proxy "http://127.0.0.1:17891" -HfEndpoint "https://huggingface.co"
 ```
 
+默认脚本会加 `--skip-agents-md`，只更新本地 `.gitnexus/` 和 generated skills，不改写 `AGENTS.md/CLAUDE.md`。这是日常开发推荐模式。
+
+只有首次接入 GitNexus 或 #1 明确要刷新 agent context 时，才使用：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/gitnexus-full-index.ps1 -Proxy "http://127.0.0.1:17891" -UpdateAgentContext
+```
+
 脚本等价于：
 
 ```powershell
-gitnexus analyze --force --embeddings --skills --verbose
+gitnexus analyze --force --embeddings --skills --verbose --skip-agents-md
 gitnexus status
 gitnexus list
 ```
@@ -132,6 +140,8 @@ gitnexus status
 gitnexus query <topic>
 gitnexus impact <symbol>
 ```
+
+每次切分支、merge、commit 后，如果 `gitnexus status` 显示 stale，就重跑 full-index。`.gitnexus/` 是本地索引，不需要提交；不要为了让索引“跟上版本”去提交 `.gitnexus/`。
 
 不要只靠 `rg` 找文件就开始改复杂模块。
 
