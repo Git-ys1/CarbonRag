@@ -74,7 +74,8 @@ Start here when exploring this area:
 
 | Area | Connections |
 |------|-------------|
-| Endpoints | 4 calls |
+| Endpoints | 3 calls |
+| Carbon | 1 calls |
 
 ## How to Explore
 

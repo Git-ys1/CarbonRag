@@ -1,16 +1,16 @@
 ---
 name: askpage
-description: "Skill for the AskPage area of CarbonRag. 53 symbols across 4 files."
+description: "Skill for the AskPage area of CarbonRag. 52 symbols across 4 files."
 ---
 
 # AskPage
 
-53 symbols | 4 files | Cohesion: 76%
+52 symbols | 4 files | Cohesion: 77%
 
 ## When to Use
 
 - Working with code in `frontend/`
-- Understanding how AskPage, openCitationPanel, getSession work
+- Understanding how AskPage, openCitationPanel, replaceAttachedPrivateSamples work
 - Modifying askpage-related functionality
 
 ## Key Files
@@ -18,8 +18,8 @@ description: "Skill for the AskPage area of CarbonRag. 53 symbols across 4 files
 | File | Symbols |
 |------|---------|
 | `frontend/src/pages/AskPage/index.tsx` | AskPage, openCitationPanel, CitationGroup, groupCitationsBySource, summarizeCitations (+43) |
-| `frontend/src/services/sessions.ts` | getSession, replaceAttachedPrivateSamples |
 | `frontend/src/services/knowledge.ts` | isNotFoundError, replaceAttachedKnowledgeItems |
+| `frontend/src/services/sessions.ts` | replaceAttachedPrivateSamples |
 | `frontend/src/services/files.ts` | uploadSessionFile |
 
 ## Entry Points
@@ -28,9 +28,9 @@ Start here when exploring this area:
 
 - **`AskPage`** (Function) — `frontend/src/pages/AskPage/index.tsx:78`
 - **`openCitationPanel`** (Function) — `frontend/src/pages/AskPage/index.tsx:452`
-- **`getSession`** (Function) — `frontend/src/services/sessions.ts:54`
 - **`replaceAttachedPrivateSamples`** (Function) — `frontend/src/services/sessions.ts:64`
 - **`replaceAttachedKnowledgeItems`** (Function) — `frontend/src/services/knowledge.ts:327`
+- **`uploadSessionFile`** (Function) — `frontend/src/services/files.ts:4`
 
 ## Key Symbols
 
@@ -38,7 +38,6 @@ Start here when exploring this area:
 |--------|------|------|------|
 | `AskPage` | Function | `frontend/src/pages/AskPage/index.tsx` | 78 |
 | `openCitationPanel` | Function | `frontend/src/pages/AskPage/index.tsx` | 452 |
-| `getSession` | Function | `frontend/src/services/sessions.ts` | 54 |
 | `replaceAttachedPrivateSamples` | Function | `frontend/src/services/sessions.ts` | 64 |
 | `replaceAttachedKnowledgeItems` | Function | `frontend/src/services/knowledge.ts` | 327 |
 | `uploadSessionFile` | Function | `frontend/src/services/files.ts` | 4 |
@@ -56,30 +55,31 @@ Start here when exploring this area:
 | `replaceStreamDraft` | Function | `frontend/src/pages/AskPage/index.tsx` | 476 |
 | `commitDraftToActiveSession` | Function | `frontend/src/pages/AskPage/index.tsx` | 499 |
 | `syncActiveSessionSummaryFromList` | Function | `frontend/src/pages/AskPage/index.tsx` | 527 |
+| `onMetadata` | Function | `frontend/src/pages/AskPage/index.tsx` | 355 |
 
 ## Execution Flows
 
 | Flow | Type | Steps |
 |------|------|-------|
 | `MyKnowledgePage → IsNotFoundError` | cross_community | 6 |
-| `MyKnowledgePage → GetSession` | cross_community | 6 |
 | `RagLabPage → IsNotFoundError` | cross_community | 5 |
 | `HandleTriggerKnowledgeRefresh → IsNotFoundError` | cross_community | 5 |
 | `LoadAdminWorkspace → IsNotFoundError` | cross_community | 5 |
 | `AdminPlaceholderPage → IsNotFoundError` | cross_community | 5 |
 | `HandleRetryTask → IsNotFoundError` | cross_community | 4 |
-| `CarbonCalcPage → GetSession` | cross_community | 4 |
 | `OnMetadata → UpdateStreamDraft` | cross_community | 3 |
 | `OnDone → UpdateStreamDraft` | cross_community | 3 |
+| `HandleSaveAttachedSamples → IsNotFoundError` | intra_community | 3 |
+| `HandleSaveAttachedSamples → ReplaceAttachedPrivateSamples` | intra_community | 3 |
 
 ## Connected Areas
 
 | Area | Connections |
 |------|-------------|
 | Components | 2 calls |
+| CarbonCalcPage | 2 calls |
 | Services | 2 calls |
 | Router | 1 calls |
-| CarbonCalcPage | 1 calls |
 | Hooks | 1 calls |
 
 ## How to Explore

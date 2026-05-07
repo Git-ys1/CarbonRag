@@ -71,9 +71,10 @@ Start here when exploring this area:
 
 | Area | Connections |
 |------|-------------|
-| Tests | 4 calls |
-| Knowledge | 2 calls |
-| Endpoints | 1 calls |
+| Tests | 3 calls |
+| Retrieval | 2 calls |
+| Knowledge | 1 calls |
+| Carbon | 1 calls |
 
 ## How to Explore
 

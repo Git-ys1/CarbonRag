@@ -1,11 +1,11 @@
 ---
 name: endpoints
-description: "Skill for the Endpoints area of CarbonRag. 45 symbols across 16 files."
+description: "Skill for the Endpoints area of CarbonRag. 41 symbols across 14 files."
 ---
 
 # Endpoints
 
-45 symbols | 16 files | Cohesion: 65%
+41 symbols | 14 files | Cohesion: 68%
 
 ## When to Use
 
@@ -23,8 +23,8 @@ description: "Skill for the Endpoints area of CarbonRag. 45 symbols across 16 fi
 | `backend/app/api/v1/endpoints/reports.py` | create_report, generate_report_alias, get_report, list_session_reports, list_session_carbon_results |
 | `backend/app/api/v1/endpoints/knowledge.py` | _sync_user_knowledge, list_knowledge_items, list_knowledge_tasks, _get_bound_session_service, replace_session_knowledge_items |
 | `backend/app/session/service.py` | list_sessions, list_private_sample_catalog, get_session_service |
-| `backend/app/api/v1/endpoints/me.py` | list_my_reports, list_my_feedback, _fetch_rows |
 | `backend/app/private_samples/catalog.py` | list_attachable_private_sample_catalog, list_admin_private_sample_catalog, refresh_private_sample_catalog |
+| `backend/app/api/v1/endpoints/me.py` | list_my_reports |
 | `backend/app/files/storage.py` | get_file_storage |
 | `backend/app/files/service.py` | __init__ |
 
@@ -51,9 +51,9 @@ Start here when exploring this area:
 | `list_session_carbon_results` | Function | `backend/app/api/v1/endpoints/reports.py` | 79 |
 | `list_my_reports` | Function | `backend/app/api/v1/endpoints/me.py` | 31 |
 | `get_session_service` | Function | `backend/app/session/service.py` | 402 |
+| `list_attachable_private_sample_catalog` | Function | `backend/app/private_samples/catalog.py` | 86 |
 | `get_file_storage` | Function | `backend/app/files/storage.py` | 31 |
 | `get_carbon_service` | Function | `backend/app/carbon/service.py` | 661 |
-| `list_attachable_private_sample_catalog` | Function | `backend/app/private_samples/catalog.py` | 86 |
 | `create_session` | Function | `backend/app/api/v1/endpoints/sessions.py` | 443 |
 | `update_session_title` | Function | `backend/app/api/v1/endpoints/sessions.py` | 467 |
 | `list_private_samples` | Function | `backend/app/api/v1/endpoints/private_samples.py` | 12 |
@@ -83,7 +83,7 @@ Start here when exploring this area:
 | Area | Connections |
 |------|-------------|
 | Tests | 4 calls |
-| Knowledge | 3 calls |
+| Retrieval | 3 calls |
 | Report | 1 calls |
 | Admin | 1 calls |
 

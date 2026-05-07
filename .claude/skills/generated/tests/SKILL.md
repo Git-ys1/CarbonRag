@@ -1,11 +1,11 @@
 ---
 name: tests
-description: "Skill for the Tests area of CarbonRag. 244 symbols across 90 files."
+description: "Skill for the Tests area of CarbonRag. 229 symbols across 86 files."
 ---
 
 # Tests
 
-244 symbols | 90 files | Cohesion: 75%
+229 symbols | 86 files | Cohesion: 75%
 
 ## When to Use
 
@@ -17,16 +17,16 @@ description: "Skill for the Tests area of CarbonRag. 244 symbols across 90 files
 
 | File | Symbols |
 |------|---------|
+| `backend/app/session/service.py` | create_session, get_session, update_session_title, build_session_context, record_exchange (+7) |
 | `backend/tests/test_rag_route.py` | test_rag_retrieve_route_returns_retrieval_only_data, test_rag_retrieve_route_returns_zero_hit_metadata, test_rag_retrieve_route_accepts_experimental_strategy, test_rag_retrieve_route_rejects_blank_question, test_rag_retrieve_route_rejects_invalid_top_k (+7) |
-| `backend/app/session/service.py` | create_session, get_session, update_session_title, build_session_context, record_exchange (+5) |
 | `backend/tests/test_report_service.py` | seed_mixed_session, build_factor_file, build_services, test_report_service_generates_mixed_report_and_appends_system_message, test_report_service_generates_carbon_summary (+2) |
 | `backend/tests/test_postgres_runtime_mode.py` | patch_postgres_connect, build_factor_file, test_feedback_service_persists_with_postgres_backend, test_carbon_service_persists_with_postgres_backend, test_report_storage_persists_with_postgres_backend (+2) |
-| `backend/tests/test_graph_index_builder.py` | build_chunk, test_graph_index_builder_build_returns_candidates, test_graph_index_builder_handles_empty_chunks, test_graph_candidates_can_be_looked_up_by_chunk_id, test_graph_local_returns_entity_candidates (+2) |
 | `backend/tests/test_calc_carbon_route.py` | test_calc_carbon_route_accepts_activity_items_v2, build_factor_file, build_test_service, test_calc_carbon_route_returns_breakdown_and_citations, test_calc_carbon_route_rejects_unknown_session (+1) |
+| `backend/app/memory/store.py` | build_memory_store, list_notes, create_note, _list_notes_postgres, _list_notes_sqlite |
 | `backend/app/carbon/service.py` | _utcnow, calculate, get_stored_calculation, _connect, list_session_calculations |
 | `backend/tests/test_ask_route_with_session.py` | build_test_services, test_session_ask_route_persists_history_and_citations, test_session_ask_route_supports_mixed_scope_without_private_hits, test_session_ask_route_records_provider_error_message, test_session_ask_stream_persists_real_thinking_content |
-| `backend/app/rag/graph.py` | build_summary, build, candidates_by_chunk_id, select_graph_candidates, _dedupe_graph_candidates |
 | `backend/tests/test_rag_parser_provider.py` | test_parser_registry_uses_default_when_configured, test_parser_registry_falls_back_when_docling_unavailable, test_parser_registry_does_not_call_mineru_when_disabled, test_parser_registry_records_mineru_unavailable_fallback_chain, test_parser_metadata_is_task_record_serializable |
+| `backend/tests/test_report_route.py` | build_factor_file, build_services, test_report_route_creates_policy_summary, test_report_route_creates_carbon_summary, test_report_route_uses_default_session_context_when_sources_omitted |
 
 ## Entry Points
 
@@ -82,14 +82,14 @@ Start here when exploring this area:
 
 | Area | Connections |
 |------|-------------|
-| Knowledge | 15 calls |
-| Rag | 13 calls |
 | Session | 10 calls |
-| Endpoints | 6 calls |
+| Endpoints | 5 calls |
+| Rag | 5 calls |
+| Memory | 5 calls |
 | Report | 4 calls |
 | Auth | 4 calls |
+| Carbon | 4 calls |
 | Settings | 4 calls |
-| Adapters | 3 calls |
 
 ## How to Explore
 

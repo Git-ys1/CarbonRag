@@ -75,10 +75,11 @@ Start here when exploring this area:
 
 | Area | Connections |
 |------|-------------|
-| Endpoints | 2 calls |
 | Adapters | 1 calls |
 | Tests | 1 calls |
+| Carbon | 1 calls |
 | Providers | 1 calls |
+| Endpoints | 1 calls |
 
 ## How to Explore
 

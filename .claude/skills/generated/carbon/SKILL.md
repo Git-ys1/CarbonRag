@@ -1,11 +1,11 @@
 ---
 name: carbon
-description: "Skill for the Carbon area of CarbonRag. 57 symbols across 26 files."
+description: "Skill for the Carbon area of CarbonRag. 60 symbols across 28 files."
 ---
 
 # Carbon
 
-57 symbols | 26 files | Cohesion: 87%
+60 symbols | 28 files | Cohesion: 85%
 
 ## When to Use
 
@@ -25,8 +25,8 @@ description: "Skill for the Carbon area of CarbonRag. 57 symbols across 26 files
 | `backend/app/knowledge/store.py` | __init__, build_knowledge_store, get_default_knowledge_store |
 | `backend/tests/test_runtime_db_bootstrap.py` | test_bootstrap_runtime_database_creates_sqlite_schema, test_bootstrap_runtime_database_executes_postgres_schema |
 | `backend/app/settings/storage.py` | __init__, get_settings_storage |
-| `backend/app/files/storage.py` | resolve_upload_root, __init__ |
 | `backend/app/private_samples/overrides.py` | _connect, update_private_sample_override |
+| `backend/app/files/storage.py` | resolve_upload_root, __init__ |
 
 ## Entry Points
 
@@ -48,20 +48,20 @@ Start here when exploring this area:
 | `test_default_ask_params_do_not_enable_experimental_workflow_modes` | Function | `backend/tests/test_rag_workflow_governance.py` | 199 |
 | `get_settings_storage` | Function | `backend/app/settings/storage.py` | 318 |
 | `ensure_postgres_schema` | Function | `backend/app/runtime_db/schema.py` | 1114 |
+| `connect_postgres` | Function | `backend/app/runtime_db/compat.py` | 0 |
 | `get_runtime_backend_kind` | Function | `backend/app/runtime_db/bootstrap.py` | 10 |
 | `bootstrap_runtime_database` | Function | `backend/app/runtime_db/bootstrap.py` | 14 |
 | `main` | Function | `backend/app/runtime_db/bootstrap.py` | 36 |
 | `build_rag_query_params` | Function | `backend/app/rag/service.py` | 648 |
 | `get_parser_registry` | Function | `backend/app/rag/parser.py` | 786 |
+| `update_private_sample_override` | Function | `backend/app/private_samples/overrides.py` | 53 |
 | `resolve_memory_backend` | Function | `backend/app/memory/store.py` | 15 |
 | `get_memory_store` | Function | `backend/app/memory/store.py` | 390 |
 | `build_knowledge_store` | Function | `backend/app/knowledge/store.py` | 898 |
 | `get_default_knowledge_store` | Function | `backend/app/knowledge/store.py` | 927 |
-| `get_settings` | Function | `backend/app/core/config.py` | 62 |
 | `resolve_upload_root` | Function | `backend/app/files/storage.py` | 7 |
+| `get_settings` | Function | `backend/app/core/config.py` | 62 |
 | `resolve_factor_file` | Function | `backend/app/carbon/factor_loader.py` | 10 |
-| `resolve_v2_factor_file` | Function | `backend/app/carbon/factor_loader.py` | 20 |
-| `resolve_v2_factor_files` | Function | `backend/app/carbon/factor_loader.py` | 30 |
 
 ## Execution Flows
 
@@ -83,7 +83,7 @@ Start here when exploring this area:
 | Area | Connections |
 |------|-------------|
 | Tests | 5 calls |
-| Endpoints | 4 calls |
+| Endpoints | 3 calls |
 | Auth | 2 calls |
 | Runtime_db | 1 calls |
 | Providers | 1 calls |

@@ -79,8 +79,7 @@ Start here when exploring this area:
 | Area | Connections |
 |------|-------------|
 | Tests | 4 calls |
-| Endpoints | 1 calls |
-| Carbon | 1 calls |
+| Carbon | 2 calls |
 
 ## How to Explore
 
