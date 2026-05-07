@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     rag_parser_provider: str = "default"
     rag_enable_mineru: bool = False
     rag_parser_fallback_chain: str = "docling,mineru,default"
+    rag_enable_policy_crawler: bool = False
     vector_store_path: str = "./data/outputs/vector_store"
     public_data_dir: str = "./data/public"
     private_sample_dir: str = "./data/private_sample"

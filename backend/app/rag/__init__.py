@@ -59,6 +59,7 @@ from app.rag.workflow import (
     WorkflowNode,
     WorkflowRecorder,
     WorkflowRun,
+    build_policy_ingest_workflow,
     build_rag_ingest_workflow,
 )
 
@@ -87,6 +88,7 @@ __all__ = [
     "WorkflowRecorder",
     "WorkflowRun",
     "build_rag_query_params",
+    "build_policy_ingest_workflow",
     "build_rag_ingest_workflow",
     "chunk_record_from_evidence_chunk",
     "chunk_record_from_retrieved_chunk",

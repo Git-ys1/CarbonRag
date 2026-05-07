@@ -6,7 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 KnowledgeItemScope = Literal["personal", "shared"]
-KnowledgeItemSourceType = Literal["uploaded_file", "private_sample_repo"]
+KnowledgeItemSourceType = Literal["uploaded_file", "private_sample_repo", "public_policy_web"]
 KnowledgeVisibility = Literal["public", "tenant", "private", "demo"]
 KnowledgeParseStatus = Literal["pending", "running", "parsed", "parse_failed"]
 KnowledgeIngestStatus = Literal["pending", "running", "ingested", "ingest_failed"]
@@ -22,7 +22,7 @@ KnowledgeItemStatus = Literal[
     "index_failed",
     "stale",
 ]
-KnowledgeTaskType = Literal["upload_ingest", "rebuild", "rescan", "retry"]
+KnowledgeTaskType = Literal["upload_ingest", "rebuild", "rescan", "retry", "crawl_ingest", "crawl_refresh"]
 KnowledgeTaskStatus = Literal["queued", "running", "succeeded", "failed"]
 
 
@@ -104,6 +104,8 @@ class KnowledgeItemSummary(BaseModel):
                 payload["source_label"] = "共享知识条目"
             elif source_type == "uploaded_file":
                 payload["source_label"] = "上传文件"
+            elif source_type == "public_policy_web":
+                payload["source_label"] = "官方政策网页"
         return payload
 
 
@@ -148,6 +150,7 @@ class KnowledgeChunk(BaseModel):
     business_topic: str | None = None
     snippet: str
     order_index: int
+    metadata: dict[str, object] = Field(default_factory=dict)
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -172,6 +175,7 @@ class KnowledgeChunkInput(BaseModel):
     business_topic: str | None = None
     snippet: str
     order_index: int
+    metadata: dict[str, object] = Field(default_factory=dict)
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

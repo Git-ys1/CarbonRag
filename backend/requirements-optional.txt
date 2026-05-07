@@ -1,5 +1,6 @@
 # Optional parser providers. These are not required for local development or CI.
 docling
+scrapy
 # MinerU is optional and disabled by default. Install the MinerU stack manually
 # per upstream docs before setting RAG_ENABLE_MINERU=true.
 # magic-pdf

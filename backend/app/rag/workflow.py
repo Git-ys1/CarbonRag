@@ -12,7 +12,10 @@ WorkflowRunStatus = Literal["pending", "running", "completed", "failed", "skippe
 WorkflowNodeStatus = Literal["pending", "running", "completed", "failed", "skipped", "succeeded"]
 WorkflowNodeType = Literal[
     "upload_received",
+    "crawl_source",
+    "stage_crawled_document",
     "parse_document",
+    "normalize_policy_metadata",
     "build_blocks",
     "build_chunks",
     "build_embeddings",
@@ -265,6 +268,47 @@ def build_rag_ingest_workflow(
     return WorkflowRun(
         workflow_id=workflow_id,
         workflow_type=workflow_type,
+        knowledge_item_id=knowledge_item_id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+        visibility=visibility,
+        created_by=created_by,
+        nodes=nodes,
+        metadata=metadata or {},
+    )
+
+
+def build_policy_ingest_workflow(
+    *,
+    knowledge_item_id: str | None = None,
+    owner_user_id: str | None = None,
+    tenant_id: str | None = None,
+    visibility: GovernanceVisibility = "public",
+    created_by: str | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> WorkflowRun:
+    workflow_id = f"rag-workflow-{uuid4().hex[:12]}"
+    node_specs: list[tuple[str, WorkflowNodeType, list[str]]] = [
+        ("crawl_source", "crawl_source", []),
+        ("stage_crawled_document", "stage_crawled_document", ["crawl_source"]),
+        ("parse_document", "parse_document", ["stage_crawled_document"]),
+        ("normalize_policy_metadata", "normalize_policy_metadata", ["parse_document"]),
+        ("build_chunks", "build_chunks", ["normalize_policy_metadata"]),
+        ("upsert_vector_index", "upsert_vector_index", ["build_chunks"]),
+        ("index_completed", "index_completed", ["upsert_vector_index"]),
+    ]
+    nodes = [
+        WorkflowNode(
+            workflow_id=workflow_id,
+            node_id=node_id,
+            node_type=node_type,
+            depends_on=depends_on,
+        )
+        for node_id, node_type, depends_on in node_specs
+    ]
+    return WorkflowRun(
+        workflow_id=workflow_id,
+        workflow_type="policy_ingest",
         knowledge_item_id=knowledge_item_id,
         owner_user_id=owner_user_id,
         tenant_id=tenant_id,

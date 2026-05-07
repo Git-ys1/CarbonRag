@@ -220,6 +220,7 @@ CREATE TABLE IF NOT EXISTS knowledge_chunks (
     business_topic TEXT,
     snippet TEXT NOT NULL,
     order_index INTEGER NOT NULL,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL,
     updated_at TEXT,
     UNIQUE (knowledge_item_id, chunk_id),
@@ -728,6 +729,7 @@ POSTGRES_SCHEMA_STATEMENTS = (
         business_topic TEXT,
         snippet TEXT NOT NULL,
         order_index INTEGER NOT NULL,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
         created_at TEXT NOT NULL,
         updated_at TEXT,
         UNIQUE (knowledge_item_id, chunk_id)
@@ -1014,6 +1016,7 @@ POSTGRES_SCHEMA_STATEMENTS = (
     "ALTER TABLE knowledge_chunks ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'private'",
     "ALTER TABLE knowledge_chunks ADD COLUMN IF NOT EXISTS created_by TEXT",
     "ALTER TABLE knowledge_chunks ADD COLUMN IF NOT EXISTS updated_at TEXT",
+    "ALTER TABLE knowledge_chunks ADD COLUMN IF NOT EXISTS metadata_json TEXT NOT NULL DEFAULT '{}'",
     "ALTER TABLE feedback_entries ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
     "ALTER TABLE carbon_calculations ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
     "ALTER TABLE carbon_calculations ADD COLUMN IF NOT EXISTS inventory_id TEXT",
@@ -1086,6 +1089,7 @@ def ensure_sqlite_schema(connection: sqlite3.Connection) -> None:
     _ensure_sqlite_column(connection, "knowledge_chunks", "visibility", "TEXT NOT NULL DEFAULT 'private'")
     _ensure_sqlite_column(connection, "knowledge_chunks", "created_by", "TEXT")
     _ensure_sqlite_column(connection, "knowledge_chunks", "updated_at", "TEXT")
+    _ensure_sqlite_column(connection, "knowledge_chunks", "metadata_json", "TEXT NOT NULL DEFAULT '{}'")
     _ensure_sqlite_column(connection, "feedback_entries", "owner_user_id", "TEXT")
     _ensure_sqlite_column(connection, "carbon_calculations", "owner_user_id", "TEXT")
     _ensure_sqlite_column(connection, "carbon_calculations", "inventory_id", "TEXT")

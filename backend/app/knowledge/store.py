@@ -267,10 +267,10 @@ class KnowledgeStore:
                 INSERT INTO knowledge_chunks (
                     knowledge_item_id, chunk_id, tenant_id, owner_user_id, visibility, created_by,
                     title, source_type, library_scope, source, source_url,
-                    issued_at, region, doc_type, sample_type, business_topic, snippet, order_index, created_at
-                    , updated_at
+                    issued_at, region, doc_type, sample_type, business_topic, snippet, order_index,
+                    metadata_json, created_at, updated_at
                 )
-                VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p})
+                VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p})
                 """,
                 [
                     model.knowledge_item_id,
@@ -291,6 +291,7 @@ class KnowledgeStore:
                     model.business_topic,
                     model.snippet,
                     model.order_index,
+                    json.dumps(model.metadata, ensure_ascii=False),
                     (model.created_at or indexed_at or self.utcnow()).isoformat(),
                     (model.updated_at or model.created_at or indexed_at or self.utcnow()).isoformat(),
                 ],
@@ -824,7 +825,9 @@ class KnowledgeStore:
 
     @staticmethod
     def _row_to_chunk(row) -> KnowledgeChunk:
-        return KnowledgeChunk.model_validate(dict(row))
+        payload = dict(row)
+        payload["metadata"] = _parse_json_object(payload.pop("metadata_json", None))
+        return KnowledgeChunk.model_validate(payload)
 
     @staticmethod
     def _row_to_task(row) -> KnowledgeTask:

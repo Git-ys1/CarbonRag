@@ -165,12 +165,16 @@ def _slice_long_segment(segment: str) -> list[str]:
 
 
 def _resolve_chunk_source_type(item: KnowledgeItem) -> str:
+    if item.source_type == "public_policy_web":
+        return "public_policy"
     if item.source_type == "uploaded_file":
         return "private_upload"
     return "private_sample"
 
 
 def _resolve_default_source(item: KnowledgeItem) -> str:
+    if item.source_type == "public_policy_web":
+        return "官方政策采集"
     if item.library_scope == "shared":
         return "管理员共享知识库"
     return "用户上传知识"
