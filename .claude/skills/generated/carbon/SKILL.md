@@ -25,8 +25,8 @@ description: "Skill for the Carbon area of CarbonRag. 57 symbols across 26 files
 | `backend/app/knowledge/store.py` | __init__, build_knowledge_store, get_default_knowledge_store |
 | `backend/tests/test_runtime_db_bootstrap.py` | test_bootstrap_runtime_database_creates_sqlite_schema, test_bootstrap_runtime_database_executes_postgres_schema |
 | `backend/app/settings/storage.py` | __init__, get_settings_storage |
-| `backend/app/private_samples/overrides.py` | _connect, update_private_sample_override |
 | `backend/app/files/storage.py` | resolve_upload_root, __init__ |
+| `backend/app/private_samples/overrides.py` | _connect, update_private_sample_override |
 
 ## Entry Points
 
@@ -53,15 +53,15 @@ Start here when exploring this area:
 | `main` | Function | `backend/app/runtime_db/bootstrap.py` | 36 |
 | `build_rag_query_params` | Function | `backend/app/rag/service.py` | 648 |
 | `get_parser_registry` | Function | `backend/app/rag/parser.py` | 786 |
-| `update_private_sample_override` | Function | `backend/app/private_samples/overrides.py` | 53 |
 | `resolve_memory_backend` | Function | `backend/app/memory/store.py` | 15 |
 | `get_memory_store` | Function | `backend/app/memory/store.py` | 390 |
-| `resolve_upload_root` | Function | `backend/app/files/storage.py` | 7 |
 | `build_knowledge_store` | Function | `backend/app/knowledge/store.py` | 898 |
 | `get_default_knowledge_store` | Function | `backend/app/knowledge/store.py` | 927 |
 | `get_settings` | Function | `backend/app/core/config.py` | 62 |
+| `resolve_upload_root` | Function | `backend/app/files/storage.py` | 7 |
 | `resolve_factor_file` | Function | `backend/app/carbon/factor_loader.py` | 10 |
 | `resolve_v2_factor_file` | Function | `backend/app/carbon/factor_loader.py` | 20 |
+| `resolve_v2_factor_files` | Function | `backend/app/carbon/factor_loader.py` | 30 |
 
 ## Execution Flows
 

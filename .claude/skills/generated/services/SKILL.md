@@ -1,32 +1,32 @@
 ---
 name: services
-description: "Skill for the Services area of CarbonRag. 71 symbols across 13 files."
+description: "Skill for the Services area of CarbonRag. 65 symbols across 12 files."
 ---
 
 # Services
 
-71 symbols | 13 files | Cohesion: 87%
+65 symbols | 12 files | Cohesion: 86%
 
 ## When to Use
 
 - Working with code in `frontend/`
-- Understanding how listPrivateSamples, listAttachableKnowledgeItems, listAdminKnowledgeItems work
+- Understanding how listPrivateSamples, listAttachableKnowledgeItems, listKnowledgeTasks work
 - Modifying services-related functionality
 
 ## Key Files
 
 | File | Symbols |
 |------|---------|
-| `frontend/src/services/knowledge.ts` | tryRemote, mapUploadedFileToKnowledgeItem, mapRemoteKnowledgeTask, pickKnowledgeTask, loadCurrentUserSessionData (+13) |
+| `frontend/src/services/knowledge.ts` | tryRemote, mapUploadedFileToKnowledgeItem, mapRemoteKnowledgeTask, pickKnowledgeTask, loadCurrentUserSessionData (+12) |
 | `frontend/src/services/sessions.ts` | submitSessionAskRequest, submitSessionAskStreamRequest, buildApiUrl, emitReconnectNotice, emitSyntheticStreamEvents (+9) |
 | `frontend/src/services/sse.ts` | createSseParserState, consumeSseTextChunk, flushSseState, processSseLine, flushCompletedEvent |
 | `frontend/src/services/settings.ts` | getSettings, listProviderProfiles, createProviderProfile, updateProviderProfile, deleteProviderProfile |
-| `frontend/src/pages/AdminPlaceholderPage/index.tsx` | AdminPlaceholderPage, loadAdminWorkspace, handleTriggerKnowledgeRefresh, formatTimestamp |
 | `frontend/src/app/SettingsContext.tsx` | refresh, createAccountProviderProfileInternal, updateAccountProviderProfileInternal, deleteAccountProviderProfileInternal |
 | `frontend/src/services/reports.ts` | listSessionReports, listSessionCarbonResults, createReport, updateReport |
 | `frontend/src/pages/ReportPage/index.tsx` | loadSessionWorkspace, handleGenerate, handleSave, extractDetailMessage |
 | `frontend/src/services/auth.ts` | registerAccount, loginAccount, logoutAccount, changePassword |
 | `frontend/src/app/AuthContext.tsx` | register, login, logout, handleChangePassword |
+| `frontend/src/services/admin.ts` | listKnowledgeRefreshTasks, triggerKnowledgeRefresh |
 
 ## Entry Points
 
@@ -34,9 +34,9 @@ Start here when exploring this area:
 
 - **`listPrivateSamples`** (Function) — `frontend/src/services/privateSamples.ts:3`
 - **`listAttachableKnowledgeItems`** (Function) — `frontend/src/services/knowledge.ts:144`
-- **`listAdminKnowledgeItems`** (Function) — `frontend/src/services/knowledge.ts:157`
 - **`listKnowledgeTasks`** (Function) — `frontend/src/services/knowledge.ts:169`
 - **`triggerKnowledgeScan`** (Function) — `frontend/src/services/knowledge.ts:194`
+- **`triggerKnowledgeRebuild`** (Function) — `frontend/src/services/knowledge.ts:212`
 
 ## Key Symbols
 
@@ -44,7 +44,6 @@ Start here when exploring this area:
 |--------|------|------|------|
 | `listPrivateSamples` | Function | `frontend/src/services/privateSamples.ts` | 3 |
 | `listAttachableKnowledgeItems` | Function | `frontend/src/services/knowledge.ts` | 144 |
-| `listAdminKnowledgeItems` | Function | `frontend/src/services/knowledge.ts` | 157 |
 | `listKnowledgeTasks` | Function | `frontend/src/services/knowledge.ts` | 169 |
 | `triggerKnowledgeScan` | Function | `frontend/src/services/knowledge.ts` | 194 |
 | `triggerKnowledgeRebuild` | Function | `frontend/src/services/knowledge.ts` | 212 |
@@ -54,14 +53,15 @@ Start here when exploring this area:
 | `listMyReports` | Function | `frontend/src/services/knowledge.ts` | 278 |
 | `listMyFeedback` | Function | `frontend/src/services/knowledge.ts` | 298 |
 | `loadMyKnowledgeWorkspace` | Function | `frontend/src/services/knowledge.ts` | 310 |
-| `getAdminFeedbackOverview` | Function | `frontend/src/services/admin.ts` | 28 |
 | `listKnowledgeRefreshTasks` | Function | `frontend/src/services/admin.ts` | 43 |
 | `triggerKnowledgeRefresh` | Function | `frontend/src/services/admin.ts` | 48 |
 | `loadKnowledgeCatalog` | Function | `frontend/src/pages/AskPage/index.tsx` | 179 |
-| `AdminPlaceholderPage` | Function | `frontend/src/pages/AdminPlaceholderPage/index.tsx` | 41 |
-| `loadAdminWorkspace` | Function | `frontend/src/pages/AdminPlaceholderPage/index.tsx` | 300 |
-| `handleTriggerKnowledgeRefresh` | Function | `frontend/src/pages/AdminPlaceholderPage/index.tsx` | 403 |
 | `createSseParserState` | Function | `frontend/src/services/sse.ts` | 11 |
+| `submitSessionAskRequest` | Function | `frontend/src/services/sessions.ts` | 75 |
+| `submitSessionAskStreamRequest` | Function | `frontend/src/services/sessions.ts` | 95 |
+| `getSettings` | Function | `frontend/src/services/settings.ts` | 12 |
+| `listProviderProfiles` | Function | `frontend/src/services/settings.ts` | 22 |
+| `createProviderProfile` | Function | `frontend/src/services/settings.ts` | 27 |
 
 ## Execution Flows
 
@@ -72,7 +72,7 @@ Start here when exploring this area:
 | `MyKnowledgePage → GetSession` | cross_community | 6 |
 | `RagLabPage → IsNotFoundError` | cross_community | 5 |
 | `HandleTriggerKnowledgeRefresh → IsNotFoundError` | cross_community | 5 |
-| `HandleTriggerKnowledgeRefresh → ListPrivateSamples` | intra_community | 5 |
+| `HandleTriggerKnowledgeRefresh → ListPrivateSamples` | cross_community | 5 |
 | `LoadAdminWorkspace → IsNotFoundError` | cross_community | 5 |
 | `MyKnowledgePage → MapUploadedFileToKnowledgeItem` | cross_community | 5 |
 | `MyKnowledgePage → ListPrivateSamples` | cross_community | 5 |
@@ -82,9 +82,7 @@ Start here when exploring this area:
 
 | Area | Connections |
 |------|-------------|
-| AdminPlaceholderPage | 4 calls |
-| CarbonCalcPage | 2 calls |
-| AskPage | 1 calls |
+| AskPage | 3 calls |
 | Layouts | 1 calls |
 | ReportPage | 1 calls |
 

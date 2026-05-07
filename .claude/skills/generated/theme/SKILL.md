@@ -66,7 +66,6 @@ Start here when exploring this area:
 | `App → ReadStoredThemeMode` | cross_community | 3 |
 | `App → ResolveSystemTheme` | cross_community | 3 |
 | `App → Update` | cross_community | 3 |
-| `HandleStorage → IsThemePresetId` | intra_community | 3 |
 
 ## How to Explore
 

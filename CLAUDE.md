@@ -18,7 +18,7 @@ Before modifying backend, frontend, carbon, RAG, session, report, auth, deployme
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **CarbonRag** (8140 symbols, 15984 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **CarbonRag** (8230 symbols, 16087 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
@@ -56,25 +56,25 @@ This project is indexed by GitNexus as **CarbonRag** (8140 symbols, 15984 relati
 | Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
 | Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
 | Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
-| Work in the Tests area (253 symbols) | `.claude/skills/generated/tests/SKILL.md` |
-| Work in the Rag area (195 symbols) | `.claude/skills/generated/rag/SKILL.md` |
-| Work in the Knowledge area (106 symbols) | `.claude/skills/generated/knowledge/SKILL.md` |
-| Work in the Services area (71 symbols) | `.claude/skills/generated/services/SKILL.md` |
+| Work in the Tests area (244 symbols) | `.claude/skills/generated/tests/SKILL.md` |
+| Work in the Rag area (198 symbols) | `.claude/skills/generated/rag/SKILL.md` |
+| Work in the Knowledge area (114 symbols) | `.claude/skills/generated/knowledge/SKILL.md` |
+| Work in the Services area (65 symbols) | `.claude/skills/generated/services/SKILL.md` |
 | Work in the Carbon area (57 symbols) | `.claude/skills/generated/carbon/SKILL.md` |
-| Work in the AskPage area (52 symbols) | `.claude/skills/generated/askpage/SKILL.md` |
+| Work in the AskPage area (53 symbols) | `.claude/skills/generated/askpage/SKILL.md` |
 | Work in the Adapters area (48 symbols) | `.claude/skills/generated/adapters/SKILL.md` |
 | Work in the Providers area (48 symbols) | `.claude/skills/generated/providers/SKILL.md` |
 | Work in the Endpoints area (45 symbols) | `.claude/skills/generated/endpoints/SKILL.md` |
-| Work in the Retrieval area (40 symbols) | `.claude/skills/generated/retrieval/SKILL.md` |
 | Work in the Settings area (39 symbols) | `.claude/skills/generated/settings/SKILL.md` |
+| Work in the Memory area (38 symbols) | `.claude/skills/generated/memory/SKILL.md` |
 | Work in the Auth area (32 symbols) | `.claude/skills/generated/auth/SKILL.md` |
-| Work in the Memory area (29 symbols) | `.claude/skills/generated/memory/SKILL.md` |
+| Work in the Retrieval area (29 symbols) | `.claude/skills/generated/retrieval/SKILL.md` |
 | Work in the Session area (28 symbols) | `.claude/skills/generated/session/SKILL.md` |
 | Work in the Admin area (25 symbols) | `.claude/skills/generated/admin/SKILL.md` |
 | Work in the Report area (21 symbols) | `.claude/skills/generated/report/SKILL.md` |
 | Work in the RagLabPage area (21 symbols) | `.claude/skills/generated/raglabpage/SKILL.md` |
 | Work in the Theme area (20 symbols) | `.claude/skills/generated/theme/SKILL.md` |
+| Work in the AdminPlaceholderPage area (19 symbols) | `.claude/skills/generated/adminplaceholderpage/SKILL.md` |
 | Work in the Tools area (18 symbols) | `.claude/skills/generated/tools/SKILL.md` |
-| Work in the Scripts area (15 symbols) | `.claude/skills/generated/scripts/SKILL.md` |
 
 <!-- gitnexus:end -->

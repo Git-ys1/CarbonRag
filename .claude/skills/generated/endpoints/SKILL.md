@@ -51,9 +51,9 @@ Start here when exploring this area:
 | `list_session_carbon_results` | Function | `backend/app/api/v1/endpoints/reports.py` | 79 |
 | `list_my_reports` | Function | `backend/app/api/v1/endpoints/me.py` | 31 |
 | `get_session_service` | Function | `backend/app/session/service.py` | 402 |
-| `list_attachable_private_sample_catalog` | Function | `backend/app/private_samples/catalog.py` | 86 |
 | `get_file_storage` | Function | `backend/app/files/storage.py` | 31 |
 | `get_carbon_service` | Function | `backend/app/carbon/service.py` | 661 |
+| `list_attachable_private_sample_catalog` | Function | `backend/app/private_samples/catalog.py` | 86 |
 | `create_session` | Function | `backend/app/api/v1/endpoints/sessions.py` | 443 |
 | `update_session_title` | Function | `backend/app/api/v1/endpoints/sessions.py` | 467 |
 | `list_private_samples` | Function | `backend/app/api/v1/endpoints/private_samples.py` | 12 |
@@ -83,7 +83,7 @@ Start here when exploring this area:
 | Area | Connections |
 |------|-------------|
 | Tests | 4 calls |
-| Retrieval | 3 calls |
+| Knowledge | 3 calls |
 | Report | 1 calls |
 | Admin | 1 calls |
 

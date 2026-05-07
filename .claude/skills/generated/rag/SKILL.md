@@ -1,11 +1,11 @@
 ---
 name: rag
-description: "Skill for the Rag area of CarbonRag. 195 symbols across 18 files."
+description: "Skill for the Rag area of CarbonRag. 198 symbols across 18 files."
 ---
 
 # Rag
 
-195 symbols | 18 files | Cohesion: 87%
+198 symbols | 18 files | Cohesion: 85%
 
 ## When to Use
 
@@ -25,7 +25,7 @@ description: "Skill for the Rag area of CarbonRag. 195 symbols across 18 files."
 | `backend/tests/test_rag_contracts_and_adapters.py` | test_retrieval_strategy_and_path_are_explicit, test_lightweight_parser_provider_wraps_existing_parser, search, test_disabled_vector_store_adapter_is_safe_by_default, test_fake_vector_store_adapter_search_returns_fixed_chunks (+5) |
 | `backend/tests/test_rag_engine.py` | build_chunk, build_service, test_rag_engine_returns_structured_bm25_fallback_when_disabled, test_rag_engine_uses_embedding_provider_for_available_vector_retrieval, test_rag_engine_reranks_through_ai_runtime_provider (+4) |
 | `backend/tests/test_pgvector_adapter.py` | test_rag_engine_pgvector_unavailable_falls_back_to_current, _chunk_record, _embedding, test_pgvector_adapter_initialization_failure_is_safe, test_pgvector_adapter_search_returns_unified_result_structure (+4) |
-| `backend/app/rag/contracts.py` | model_post_init, hash_content, model_post_init, from_retrieved_chunk, _rough_token_count (+4) |
+| `backend/app/rag/contracts.py` | model_post_init, from_retrieved_chunk, model_post_init, hash_content, _rough_token_count (+4) |
 | `backend/app/rag/retriever_strategy.py` | retrieve, _merge_chunks, _chunk_source_metadata, _normalize_score, retrieve (+4) |
 
 ## Entry Points
@@ -61,7 +61,7 @@ Start here when exploring this area:
 | `build_retrieval_path` | Function | `backend/app/rag/strategy.py` | 34 |
 | `get_rag_engine_service` | Function | `backend/app/rag/service.py` | 677 |
 | `retrieve_rag_evidence` | Function | `backend/app/api/v1/endpoints/rag.py` | 75 |
-| `test_pgvector_adapter_initialization_failure_is_safe` | Function | `backend/tests/test_pgvector_adapter.py` | 91 |
+| `test_workflow_recorder_tracks_node_status_and_checkpoints` | Function | `backend/tests/test_rag_workflow_governance.py` | 48 |
 
 ## Execution Flows
 
@@ -69,14 +69,14 @@ Start here when exploring this area:
 |------|------|-------|
 | `Main → _uses_pgvector_backend` | cross_community | 7 |
 | `Main → _chunk_source_metadata` | cross_community | 7 |
+| `Trigger_scan → Get_settings` | cross_community | 7 |
+| `Trigger_scan → Load_local_chat_provider_override` | cross_community | 7 |
 | `Main → _private_allowed_ids` | cross_community | 6 |
 | `Main → _source_type_filter` | cross_community | 6 |
 | `Retrieve_rag_evidence → _uses_pgvector_backend` | intra_community | 5 |
 | `Retrieve_rag_evidence → _chunk_source_metadata` | cross_community | 5 |
 | `Main → _initial_fallback_reason` | cross_community | 5 |
 | `Main → _vector_store_health` | cross_community | 5 |
-| `Retrieve_rag_evidence → _private_allowed_ids` | intra_community | 4 |
-| `Retrieve_rag_evidence → _source_type_filter` | intra_community | 4 |
 
 ## Connected Areas
 

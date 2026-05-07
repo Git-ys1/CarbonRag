@@ -46,6 +46,8 @@ gitnexus detect_changes
 - `gitnexus impact CarbonCalculationEngine` 返回 LOW risk，影响 `carbon/service.py`、`report/service.py`、`calc_carbon.py` 等上游引用。
 - `gitnexus detect_changes` 能识别当前文档/agent 指令改动影响范围。
 - `gitnexus serve --host 127.0.0.1 --port 4747` 能启动 Web UI 服务，端口 `4747` 本机可连接。
+- Web UI 已验证可进入 CarbonRag 图谱页，能看到文件树、画布、`8230 nodes / 15975 edges`，并能在 Code Inspector 中查看 `backend/app/carbon/engine.py`。
+- 首次进入图谱时可能显示 `Downloading... 0.0 MB`，等待 30-60 秒；若仍无结果，按 runbook 检查 `/api/graph?repo=CarbonRag&stream=true`。
 
 ## Codex 使用口令
 

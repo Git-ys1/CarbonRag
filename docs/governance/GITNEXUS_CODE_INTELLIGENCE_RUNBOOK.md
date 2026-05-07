@@ -94,6 +94,33 @@ gitnexus serve --host 127.0.0.1 --port 4747
 
 打开 `http://127.0.0.1:4747` 后应能看到本地 GitNexus Web UI。V1.4.7 本机已验证端口 `4747` 可连接。
 
+首次点击 `CarbonRag` 仓库卡片时，页面可能停在 `Downloading... 0.0 MB` 一段时间；这是前端在消费
+`/api/graph?repo=CarbonRag&stream=true` 的 NDJSON 图谱流。#1 本机实测图谱流约 7.5 MB，等待约 30-60 秒后可进入图谱页。
+进入后应能看到文件树、图谱画布、`8230 nodes / 15975 edges` 统计，并可在 Code Inspector 中查看
+`backend/app/carbon/engine.py` 等文件。
+
+如果长时间无结果，先验证：
+
+```powershell
+Invoke-WebRequest -UseBasicParsing http://127.0.0.1:4747/ -TimeoutSec 10
+Invoke-RestMethod http://127.0.0.1:4747/api/repos -TimeoutSec 10
+curl.exe -sS --max-time 8 "http://127.0.0.1:4747/api/graph?repo=CarbonRag&stream=true" -o $env:TEMP\gitnexus-graph-sample.txt
+Get-Item $env:TEMP\gitnexus-graph-sample.txt
+```
+
+看完 Web UI 后，如果要继续运行 `gitnexus detect_changes`、`gitnexus analyze` 或提交前检查，建议先关闭
+`gitnexus serve`。Windows 上 serve 进程可能持有 `.gitnexus/lbug` 文件锁，导致 detect_changes 输出
+`The process cannot access the file because another process has locked a portion of the file`。
+
+```powershell
+$ownerIds = Get-NetTCPConnection -LocalPort 4747 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique
+foreach ($ownerId in $ownerIds) {
+  if ($ownerId -and $ownerId -ne 0) {
+    Stop-Process -Id $ownerId -Force
+  }
+}
+```
+
 ## 开工前固定顺序
 
 ```powershell
@@ -122,3 +149,5 @@ gitnexus impact <symbol>
 | `Database ID for ... lbug.wal does not match` | 半成品索引残留 | 删除 `.gitnexus/` 后重跑 |
 | `VECTOR extension not supported` | Windows 当前 VECTOR 不可用 | 接受 exact-scan fallback |
 | `gitnexus serve` 端口占用 | 上次 node 子进程未关 | 关闭对应 `node.exe` 或换端口 |
+| Web UI 卡在 `Downloading... 0.0 MB` | 图谱流较大或页面仍在解析 | 等待 30-60 秒；若仍无结果，检查 `/api/graph` 输出大小 |
+| `detect_changes` 出现 lbug 文件锁 | `gitnexus serve` 正在占用图数据库 | 关闭 4747 对应 `node.exe` 后重跑 |
