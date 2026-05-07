@@ -37,10 +37,14 @@ CarbonRag SHALL process official policy knowledge through collection, parsing, a
 #### Scenario: HTML/PDF/OFD parsing routes safely
 - **WHEN** a staged policy document is HTML
 - **THEN** CarbonRag extracts readable text without requiring Docling or MinerU
+- **AND** common navigation, footer, sidebar, share, script, style, and breadcrumb boilerplate is excluded
+- **AND** lightweight page metadata such as publication date and source label is preserved when visible in the page text
 - **WHEN** a staged policy document is PDF
 - **THEN** CarbonRag may prefer Docling and fall back through existing parser providers
+- **AND** the parsed document keeps policy context such as `source_type=public_policy_web`, original source URL, and parser chain metadata
 - **WHEN** a staged policy document is OFD
 - **THEN** CarbonRag only attempts OFD conversion through an optional converter adapter
+- **AND** conversion metadata is preserved when converted content routes through the parser registry
 
 #### Scenario: Policy governance metadata is normalized
 - **WHEN** a policy document is parsed

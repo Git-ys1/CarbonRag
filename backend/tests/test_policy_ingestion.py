@@ -138,16 +138,72 @@ def test_html_policy_parser_extracts_readable_text(tmp_path) -> None:
     assert parsed.metadata["parse_success"] is True
 
 
+def test_html_policy_parser_filters_boilerplate_and_extracts_metadata(tmp_path) -> None:
+    source = tmp_path / "policy.html"
+    source.write_text(
+        """
+        <html>
+          <head><title>北京市绿色低碳政策</title><style>.hidden{}</style></head>
+          <body>
+            <nav>首页 政策公开 站点地图</nav>
+            <div class="breadcrumb">当前位置：首页 > 政策</div>
+            <aside class="sidebar">相关链接 不应进入正文</aside>
+            <main>
+              <h1>北京市绿色低碳政策</h1>
+              <p>来源：北京市发展和改革委员会 发布时间：2026年5月2日</p>
+              <p>第一条 推动重点行业开展碳核算和节能改造。</p>
+              <p>第二条 建立绿色低碳项目清单。</p>
+            </main>
+            <div class="share">分享到微信</div>
+            <footer>版权所有</footer>
+          </body>
+        </html>
+        """,
+        encoding="utf-8",
+    )
+    parser = PolicyDocumentParser(parser_registry=_FakeParserRegistry())
+
+    parsed = parser.parse_staged_document(
+        path=source,
+        content_type="text/html",
+        source_url="https://fgw.beijing.gov.cn/zwxx/tzgg/policy.html",
+    )
+
+    assert "推动重点行业开展碳核算" in parsed.text
+    assert "首页 政策公开" not in parsed.text
+    assert "当前位置" not in parsed.text
+    assert "相关链接" not in parsed.text
+    assert "分享到微信" not in parsed.text
+    assert "版权所有" not in parsed.text
+    assert parsed.metadata["publication_date"] == "2026-05-02"
+    assert parsed.metadata["source_label"] == "北京市发展和改革委员会"
+    assert parsed.metadata["issuing_authority"] == "北京市发展和改革委员会"
+    assert parsed.metadata["parser_chain"] == ["carbonrag-html:success"]
+
+
 def test_pdf_policy_parser_routes_to_registry(tmp_path) -> None:
     source = tmp_path / "policy.pdf"
     source.write_text("mock pdf", encoding="utf-8")
     registry = _FakeParserRegistry()
     parser = PolicyDocumentParser(parser_registry=registry)
 
-    parsed = parser.parse_staged_document(path=source, content_type="application/pdf")
+    parsed = parser.parse_staged_document(
+        path=source,
+        content_type="application/pdf",
+        source_url="https://www.gov.cn/zhengce/content/policy.pdf",
+        title="PDF政策",
+    )
 
     assert registry.calls == [(source, "application/pdf")]
     assert parsed.text == "PDF policy text"
+    assert parsed.source_type == "public_policy_web"
+    assert parsed.source_uri == "https://www.gov.cn/zhengce/content/policy.pdf"
+    assert parsed.title == "PDF政策"
+    assert parsed.visibility == "public"
+    assert parsed.metadata["source_url"] == "https://www.gov.cn/zhengce/content/policy.pdf"
+    assert parsed.metadata["original_source_uri"] == str(source)
+    assert parsed.metadata["policy_content_type"] == "application/pdf"
+    assert parsed.metadata["parser_chain"] == ["fake-registry:success"]
 
 
 def test_ofd_policy_parser_fails_safely_when_converter_missing(monkeypatch, tmp_path) -> None:
@@ -175,9 +231,19 @@ def test_ofd_policy_parser_routes_converted_document_to_registry(tmp_path) -> No
         ofd_converter=OfdrwConverterAdapter(converter=_FakeOfdConverter(converted)),
     )
 
-    parsed = parser.parse_staged_document(path=source, content_type="application/ofd")
+    parsed = parser.parse_staged_document(
+        path=source,
+        content_type="application/ofd",
+        source_url="https://www.gov.cn/zhengce/content/policy.ofd",
+    )
 
     assert registry.calls == [(converted, "application/pdf")]
+    assert parsed.source_type == "public_policy_web"
+    assert parsed.source_uri == "https://www.gov.cn/zhengce/content/policy.ofd"
+    assert parsed.metadata["source_url"] == "https://www.gov.cn/zhengce/content/policy.ofd"
+    assert parsed.metadata["original_source_uri"] == str(converted)
+    assert parsed.metadata["policy_content_type"] == "application/pdf"
+    assert parsed.metadata["parser_chain"] == ["fake-registry:success"]
     assert parsed.metadata["converted_from"] == "ofd"
     assert parsed.metadata["converter_name"] == "ofdrw"
 
@@ -307,6 +373,8 @@ def test_crawled_policy_document_can_be_indexed_and_retrieved(tmp_path, monkeypa
     assert chunks[0].metadata["original_source_type"] == "public_policy_web"
     assert chunks[0].metadata["source_url"] == crawled.url
     assert chunks[0].metadata["clause_anchors"]
+    assert chunks[0].metadata["parser_name"] == "carbonrag-html"
+    assert chunks[0].metadata["metadata"]["parser_chain"] == ["carbonrag-html:success"]
 
     get_public_policy_retriever.cache_clear()
     result = get_public_policy_retriever().search(question="低碳韧性校园 碳核算", top_k=5)

@@ -50,7 +50,16 @@
 - [x] 7.4 Add tests for crawl result -> knowledge task -> indexed chunks -> public retrieval hit.
 - [x] 7.5 Validate targeted crawler/knowledge tests, backend regression, and OpenSpec.
 
-## 8. Deferred Follow-Up Slices
+## 8. Slice G: Parser Routing Hardening
+
+- [x] 8.1 Harden HTML body extraction so common navigation, footer, sidebar, share, script, style, and breadcrumb text is excluded from `ParsedDocument.text`.
+- [x] 8.2 Extract lightweight policy page metadata from HTML text, including publication date and source label when available.
+- [x] 8.3 Wrap PDF parser registry output with policy context, preserving parser chain metadata while setting `source_type=public_policy_web` and `source_uri=source_url`.
+- [x] 8.4 Keep OFD conversion optional and preserve conversion metadata when converted documents route through the parser registry.
+- [x] 8.5 Add tests for HTML boilerplate filtering, HTML metadata extraction, PDF policy context wrapping, OFD conversion metadata, and crawl ingest parser metadata.
+- [x] 8.6 Validate targeted parser/crawler tests, backend regression, and OpenSpec.
+
+## 9. Deferred Follow-Up Slices
 
 - Future: add Scrapyd deployment and scheduling docs only after local crawler boundary is stable.
 - Future: add real OFDRW conversion integration after licensing and runtime shape are reviewed.

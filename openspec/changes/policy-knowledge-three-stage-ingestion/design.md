@@ -30,6 +30,8 @@ The current knowledge task flow covers uploads and shared repo samples. The RAG 
 - Add policy-specific workflow nodes (`crawl_source`, `stage_crawled_document`, `normalize_policy_metadata`) alongside existing ingest nodes.
 - Add a `KnowledgeService.create_policy_item_from_crawled_document` entrypoint for offline crawler results. It stages content, creates or refreshes a shared `public_policy_web` item, and enqueues `crawl_ingest` without exposing live crawling as a default read path.
 - Let `PublicPolicyRetriever` append indexed `public_policy_web` runtime chunks to the existing checked-in public policy corpus, preserving the outward `public_policy` evidence type.
+- Harden the lightweight HTML parser with conservative boilerplate filtering and visible metadata extraction before introducing heavier parser dependencies.
+- Wrap parser registry output for PDF/OFD policy documents so optional Docling/MinerU/default parser metadata is preserved while the policy ingestion layer retains public policy source context.
 
 ## Risks / Trade-offs
 
@@ -39,3 +41,4 @@ The current knowledge task flow covers uploads and shared repo samples. The RAG 
 - Public policy web source type could break existing retrieval literals → keep chunk evidence mapped to `public_policy`.
 - Scrapy may not be installed in CI → keep real crawler smoke tests skipped unless the optional dependency is present.
 - Runtime policy chunks are loaded through the same BM25 public retriever cache, so ingestion must clear public/mixed retriever caches after successful indexing.
+- HTML boilerplate filtering can accidentally remove content on unusual official pages → keep the filter conservative and prefer explicit semantic tags/classes over broad text deletion.

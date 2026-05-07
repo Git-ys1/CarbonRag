@@ -329,7 +329,13 @@ class PolicyDocumentParser:
                     }
                 }
             )
-        return self.parser_registry.parse(resolved_path, content_type=normalized_content_type)
+        parsed = self.parser_registry.parse(resolved_path, content_type=normalized_content_type)
+        return self._with_policy_context(
+            parsed,
+            source_url=source_url,
+            title=title,
+            content_type=normalized_content_type,
+        )
 
     def _parse_html(self, *, path: Path, source_url: str | None, title: str | None) -> ParsedDocument:
         raw_html = _read_text(path)
@@ -344,6 +350,8 @@ class PolicyDocumentParser:
             "source_url": source_url,
             "parse_success": bool(extracted.text.strip()),
             "parse_error": None if extracted.text.strip() else "HTML document returned empty text.",
+            "parser_chain": ["carbonrag-html:success"] if extracted.text.strip() else ["carbonrag-html:failed"],
+            **extracted.metadata,
         }
         return ParsedDocument(
             document_id=document_id,
@@ -358,6 +366,35 @@ class PolicyDocumentParser:
             blocks=blocks,
             metadata=metadata,
             visibility="public",
+        )
+
+    @staticmethod
+    def _with_policy_context(
+        parsed: ParsedDocument,
+        *,
+        source_url: str | None,
+        title: str | None,
+        content_type: str,
+    ) -> ParsedDocument:
+        metadata = {
+            **parsed.metadata,
+            "source_url": source_url,
+            "policy_content_type": content_type,
+            "original_source_uri": parsed.source_uri,
+            "parse_success": parsed.metadata.get("parse_success", bool(parsed.text.strip())),
+        }
+        if "parser_chain" not in metadata:
+            status = "success" if metadata.get("parse_success") is True else "failed"
+            metadata["parser_chain"] = [f"{parsed.parser_name}:{status}"]
+        return parsed.model_copy(
+            update={
+                "source_uri": source_url or parsed.source_uri,
+                "source_type": "public_policy_web",
+                "title": title or parsed.title,
+                "mime_type": parsed.mime_type or content_type,
+                "visibility": "public",
+                "metadata": metadata,
+            }
         )
 
     @staticmethod
@@ -422,6 +459,7 @@ class PolicyGovernanceMetadata(BaseModel):
 class HtmlExtractionResult(BaseModel):
     title: str | None = None
     text: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 def validate_policy_crawl_request(request: PolicyCrawlRequest) -> None:
@@ -590,19 +628,33 @@ def _run_scrapy_crawler_subprocess(request: PolicyCrawlRequest) -> list[CrawledD
 def _extract_html_text(raw_html: str) -> HtmlExtractionResult:
     parser = _ReadableHtmlParser()
     parser.feed(raw_html)
-    return HtmlExtractionResult(title=parser.title, text=parser.text)
+    text = parser.text
+    return HtmlExtractionResult(title=parser.title, text=text, metadata=_extract_html_policy_metadata(text))
 
 
 class _ReadableHtmlParser(HTMLParser):
     block_tags = {"p", "div", "section", "article", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6"}
-    skip_tags = {"script", "style", "noscript"}
+    skip_tags = {"script", "style", "noscript", "nav", "footer"}
+    skip_attr_tokens = {
+        "breadcrumb",
+        "copyright",
+        "footer",
+        "menu",
+        "nav",
+        "pagination",
+        "qrcode",
+        "related",
+        "share",
+        "sidebar",
+        "toolbar",
+    }
 
     def __init__(self) -> None:
         super().__init__()
         self._parts: list[str] = []
         self._title_parts: list[str] = []
         self._in_title = False
-        self._skip_depth = 0
+        self._skip_stack: list[str] = []
 
     @property
     def title(self) -> str | None:
@@ -612,33 +664,85 @@ class _ReadableHtmlParser(HTMLParser):
     @property
     def text(self) -> str:
         normalized = "\n".join(part.strip() for part in self._parts if part.strip())
-        return re.sub(r"\n{3,}", "\n\n", normalized).strip()
+        normalized = re.sub(r"\n{3,}", "\n\n", normalized).strip()
+        return _dedupe_adjacent_lines(normalized)
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag in self.skip_tags:
-            self._skip_depth += 1
+        if tag in self.skip_tags or self._attrs_indicate_boilerplate(attrs):
+            self._skip_stack.append(tag)
         if tag == "title":
             self._in_title = True
-        if tag in self.block_tags or tag == "br":
+        if not self._skip_stack and (tag in self.block_tags or tag == "br"):
             self._parts.append("\n")
 
     def handle_endtag(self, tag: str) -> None:
-        if tag in self.skip_tags and self._skip_depth:
-            self._skip_depth -= 1
+        if tag in self._skip_stack:
+            while self._skip_stack:
+                skipped_tag = self._skip_stack.pop()
+                if skipped_tag == tag:
+                    break
         if tag == "title":
             self._in_title = False
-        if tag in self.block_tags:
+        if not self._skip_stack and tag in self.block_tags:
             self._parts.append("\n")
 
     def handle_data(self, data: str) -> None:
-        if self._skip_depth:
-            return
         normalized = re.sub(r"\s+", " ", data).strip()
         if not normalized:
             return
         if self._in_title:
             self._title_parts.append(normalized)
+        if self._skip_stack:
+            return
         self._parts.append(normalized)
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "br" and not self._skip_stack and not self._attrs_indicate_boilerplate(attrs):
+            self._parts.append("\n")
+
+    @classmethod
+    def _attrs_indicate_boilerplate(cls, attrs: list[tuple[str, str | None]]) -> bool:
+        values: list[str] = []
+        for key, value in attrs:
+            if key.lower() in {"class", "id", "role", "aria-label"} and value:
+                values.append(value.lower())
+        joined = " ".join(values).replace("_", "-")
+        return any(token in joined for token in cls.skip_attr_tokens)
+
+
+def _extract_html_policy_metadata(text: str) -> dict[str, Any]:
+    metadata: dict[str, Any] = {}
+    publication_date = _extract_first_date(text)
+    if publication_date:
+        metadata["publication_date"] = publication_date
+    source_label = _extract_source_label(text)
+    if source_label:
+        metadata["source_label"] = source_label
+        metadata["issuing_authority"] = source_label
+    return metadata
+
+
+def _extract_source_label(text: str) -> str | None:
+    match = re.search(r"(?:来源|信息来源|发文机关|发布机构)[:：]\s*([^\n\r]{2,60})", text)
+    if not match:
+        return None
+    value = re.split(r"(?:\s|　)*(?:时间|日期|发布时间|发布日期)[:：]?", match.group(1).strip(), maxsplit=1)[0]
+    return value.strip(" ：:，,。") or None
+
+
+def _dedupe_adjacent_lines(text: str) -> str:
+    lines: list[str] = []
+    previous = ""
+    for line in (part.strip() for part in text.splitlines()):
+        if not line:
+            if lines and lines[-1]:
+                lines.append("")
+            continue
+        if line == previous:
+            continue
+        lines.append(line)
+        previous = line
+    return "\n".join(lines).strip()
 
 
 def _blocks_from_text(text: str, *, document_id: str) -> list[DocumentBlock]:
