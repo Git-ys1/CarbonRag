@@ -246,6 +246,14 @@ export async function retryKnowledgeTask(taskId: string): Promise<KnowledgeTask>
     });
 }
 
+export async function updateAdminKnowledgeItem(
+    knowledgeItemId: string,
+    payload: Pick<KnowledgeItem, "is_enabled" | "session_attachable">,
+): Promise<KnowledgeItem> {
+    const response = await httpClient.patch<RemoteKnowledgeItem>(`/v1/admin/knowledge-items/${knowledgeItemId}`, payload);
+    return mapRemoteKnowledgeItem(response.data);
+}
+
 export async function listAdminKnowledgeTasks(): Promise<KnowledgeTask[]> {
     const remote = await tryRemote(async () => {
         const response = await httpClient.get<RemoteKnowledgeTask[]>("/v1/admin/knowledge-tasks");

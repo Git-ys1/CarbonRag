@@ -51,6 +51,89 @@ export interface AdminPrivateSampleItem {
     is_enabled: boolean;
 }
 
+export interface PolicyShowcaseSourceSummary {
+    source_id: string;
+    title: string;
+    source_url: string;
+    source_label: string;
+    description: string;
+    default_query: string;
+    content_type: string;
+    metadata: Record<string, unknown>;
+}
+
+export interface PolicyShowcaseWorkflowNodeSummary {
+    node_id: string;
+    node_type: string;
+    status: string;
+    input_ref: string | null;
+    output_ref: string | null;
+    started_at: string | null;
+    finished_at: string | null;
+    error_message: string | null;
+    retry_count: number;
+    metadata: Record<string, unknown>;
+}
+
+export interface PolicyShowcaseWorkflowSummary {
+    workflow_id: string;
+    workflow_type: string;
+    status: string;
+    current_node: string | null;
+    error_message: string | null;
+    created_at: string;
+    updated_at: string;
+    nodes: PolicyShowcaseWorkflowNodeSummary[];
+}
+
+export interface PolicyShowcaseChunkSummary {
+    chunk_id: string;
+    knowledge_item_id: string;
+    title: string;
+    source_type: string;
+    source: string;
+    source_url: string | null;
+    issued_at: string | null;
+    region: string | null;
+    doc_type: string | null;
+    snippet: string;
+    order_index: number;
+    metadata: Record<string, unknown>;
+}
+
+export interface PolicyShowcaseRetrievalHit {
+    chunk_id: string;
+    knowledge_item_id: string | null;
+    title: string;
+    source_type: string;
+    source: string;
+    source_url: string | null;
+    issued_at: string | null;
+    region: string | null;
+    doc_type: string | null;
+    snippet: string;
+    score: number;
+    matched_source: boolean;
+}
+
+export interface PolicyShowcaseRetrievalPreview {
+    source_id: string;
+    query: string;
+    top_k: number;
+    total_hits: number;
+    hits: PolicyShowcaseRetrievalHit[];
+}
+
+export interface PolicyShowcaseStatus {
+    source: PolicyShowcaseSourceSummary;
+    item: import("./knowledge").KnowledgeItem | null;
+    latest_task: import("./knowledge").KnowledgeTask | null;
+    workflow: PolicyShowcaseWorkflowSummary | null;
+    chunks: PolicyShowcaseChunkSummary[];
+    retrieval_preview: PolicyShowcaseRetrievalPreview | null;
+    indexed: boolean;
+}
+
 export interface UpdateAdminPrivateSampleRequest {
     is_enabled: boolean;
     session_attachable: boolean;

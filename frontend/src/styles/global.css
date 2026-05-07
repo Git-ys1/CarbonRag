@@ -1471,6 +1471,10 @@ body {
     gap: 12px;
 }
 
+.admin-grid__wide-card {
+    grid-column: 1 / -1;
+}
+
 .admin-grid__table-hint {
     margin-bottom: 0;
 }

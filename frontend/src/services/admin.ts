@@ -5,6 +5,10 @@ import type {
     AdminSystemStatus,
     AdminUserSummary,
     KnowledgeRefreshTask,
+    PolicyShowcaseChunkSummary,
+    PolicyShowcaseRetrievalPreview,
+    PolicyShowcaseSourceSummary,
+    PolicyShowcaseStatus,
     TriggerKnowledgeRefreshRequest,
     UpdateAdminPrivateSampleRequest,
     UpdateAdminUserRequest,
@@ -33,6 +37,39 @@ export async function getAdminFeedbackOverview() {
 
 export async function listAdminPrivateSamples() {
     const response = await httpClient.get<AdminPrivateSampleItem[]>("/v1/admin/private-samples");
+    return response.data;
+}
+
+export async function listPolicyShowcaseSources() {
+    const response = await httpClient.get<PolicyShowcaseSourceSummary[]>("/v1/admin/policy-sources");
+    return response.data;
+}
+
+export async function runPolicyShowcaseSource(sourceId: string) {
+    const response = await httpClient.post<PolicyShowcaseStatus>(`/v1/admin/policy-sources/${sourceId}/run`, {});
+    return response.data;
+}
+
+export async function getPolicyShowcaseStatus(sourceId: string) {
+    const response = await httpClient.get<PolicyShowcaseStatus>(`/v1/admin/policy-sources/${sourceId}/status`);
+    return response.data;
+}
+
+export async function listPolicyShowcaseChunks(sourceId: string) {
+    const response = await httpClient.get<PolicyShowcaseChunkSummary[]>(`/v1/admin/policy-sources/${sourceId}/chunks`);
+    return response.data;
+}
+
+export async function getPolicyShowcaseRetrievalPreview(sourceId: string, query?: string, topK = 5) {
+    const response = await httpClient.get<PolicyShowcaseRetrievalPreview>(
+        `/v1/admin/policy-sources/${sourceId}/retrieval-preview`,
+        {
+            params: {
+                query,
+                top_k: topK,
+            },
+        },
+    );
     return response.data;
 }
 

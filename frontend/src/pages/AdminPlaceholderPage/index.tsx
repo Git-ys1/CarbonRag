@@ -1,4 +1,4 @@
-import { EyeOutlined, ReloadOutlined, SyncOutlined } from "@ant-design/icons";
+import { DatabaseOutlined, EyeOutlined, ReloadOutlined, SyncOutlined } from "@ant-design/icons";
 import {
     Alert,
     Button,
@@ -22,9 +22,13 @@ import { useEffect, useMemo, useState } from "react";
 import {
     getAdminFeedbackOverview,
     getAdminSystemStatus,
+    getPolicyShowcaseRetrievalPreview,
+    getPolicyShowcaseStatus,
     listAdminUsers,
+    listPolicyShowcaseChunks,
+    listPolicyShowcaseSources,
     resetAdminUserPassword,
-    updateAdminPrivateSample,
+    runPolicyShowcaseSource,
     updateAdminUser,
 } from "../../services/admin";
 import {
@@ -33,8 +37,15 @@ import {
     retryKnowledgeTask,
     triggerKnowledgeRebuild,
     triggerKnowledgeScan,
+    updateAdminKnowledgeItem,
 } from "../../services/knowledge";
-import type { AdminFeedbackOverview, AdminSystemStatus, AdminUserSummary } from "../../types/admin";
+import type {
+    AdminFeedbackOverview,
+    AdminSystemStatus,
+    AdminUserSummary,
+    PolicyShowcaseSourceSummary,
+    PolicyShowcaseStatus,
+} from "../../types/admin";
 import type { KnowledgeItem, KnowledgeTask } from "../../types/knowledge";
 
 type KnowledgeTaskRefreshAction = "scan" | "rebuild" | null;
@@ -47,9 +58,13 @@ export function AdminPlaceholderPage() {
     const [feedbackOverview, setFeedbackOverview] = useState<AdminFeedbackOverview | null>(null);
     const [knowledgeItems, setKnowledgeItems] = useState<KnowledgeItem[]>([]);
     const [knowledgeTasks, setKnowledgeTasks] = useState<KnowledgeTask[]>([]);
+    const [policySources, setPolicySources] = useState<PolicyShowcaseSourceSummary[]>([]);
+    const [policyShowcaseStatus, setPolicyShowcaseStatus] = useState<PolicyShowcaseStatus | null>(null);
     const [userSavingId, setUserSavingId] = useState<string | null>(null);
     const [knowledgeItemSavingId, setKnowledgeItemSavingId] = useState<string | null>(null);
     const [refreshingKnowledge, setRefreshingKnowledge] = useState<KnowledgeTaskRefreshAction>(null);
+    const [runningPolicySourceId, setRunningPolicySourceId] = useState<string | null>(null);
+    const [loadingPolicySourceId, setLoadingPolicySourceId] = useState<string | null>(null);
     const [selectedTask, setSelectedTask] = useState<KnowledgeTask | null>(null);
 
     const userColumns = useMemo<ColumnsType<AdminUserSummary>>(
@@ -294,26 +309,50 @@ export function AdminPlaceholderPage() {
         [],
     );
 
+    const selectedPolicySource = policySources[0] ?? policyShowcaseStatus?.source ?? null;
+    const policyChunks = policyShowcaseStatus?.chunks ?? [];
+    const policyRetrievalHits = policyShowcaseStatus?.retrieval_preview?.hits ?? [];
+
     useEffect(() => {
         void loadAdminWorkspace();
     }, []);
+
+    async function fetchPolicyShowcase(sourceId: string): Promise<PolicyShowcaseStatus> {
+        const status = await getPolicyShowcaseStatus(sourceId);
+        const [chunks, retrievalPreview] = await Promise.all([
+            listPolicyShowcaseChunks(sourceId),
+            getPolicyShowcaseRetrievalPreview(sourceId, status.source.default_query, 5),
+        ]);
+        return {
+            ...status,
+            chunks,
+            retrieval_preview: retrievalPreview,
+        };
+    }
 
     async function loadAdminWorkspace() {
         setLoading(true);
         setErrorMessage(null);
         try {
-            const [nextUsers, nextFeedback, nextKnowledgeItems, nextTasks, nextStatus] = await Promise.all([
+            const [nextUsers, nextFeedback, nextKnowledgeItems, nextTasks, nextStatus, nextPolicySources] = await Promise.all([
                 listAdminUsers(),
                 getAdminFeedbackOverview(),
                 listAdminKnowledgeItems(),
                 listAdminKnowledgeTasks(),
                 getAdminSystemStatus(),
+                listPolicyShowcaseSources(),
             ]);
             setUsers(nextUsers);
             setFeedbackOverview(nextFeedback);
             setKnowledgeItems(nextKnowledgeItems);
             setKnowledgeTasks(nextTasks);
             setSystemStatus(nextStatus);
+            setPolicySources(nextPolicySources);
+            if (nextPolicySources[0]) {
+                setPolicyShowcaseStatus(await fetchPolicyShowcase(nextPolicySources[0].source_id));
+            } else {
+                setPolicyShowcaseStatus(null);
+            }
         } catch (error) {
             setErrorMessage(extractDetailMessage(error) ?? "加载管理员工作台失败。");
         } finally {
@@ -368,7 +407,7 @@ export function AdminPlaceholderPage() {
         setKnowledgeItemSavingId(record.knowledge_item_id);
         setErrorMessage(null);
         try {
-            const updated = await updateAdminPrivateSample(record.knowledge_item_id, patch);
+            const updated = await updateAdminKnowledgeItem(record.knowledge_item_id, patch);
             setKnowledgeItems((current) =>
                 current.map((item) =>
                     item.knowledge_item_id === record.knowledge_item_id
@@ -413,6 +452,33 @@ export function AdminPlaceholderPage() {
             setErrorMessage(extractDetailMessage(error) ?? "知识任务触发失败。");
         } finally {
             setRefreshingKnowledge(null);
+        }
+    }
+
+    async function handleRefreshPolicyShowcase(sourceId: string) {
+        setLoadingPolicySourceId(sourceId);
+        setErrorMessage(null);
+        try {
+            setPolicyShowcaseStatus(await fetchPolicyShowcase(sourceId));
+        } catch (error) {
+            setErrorMessage(extractDetailMessage(error) ?? "刷新政策摄取状态失败。");
+        } finally {
+            setLoadingPolicySourceId(null);
+        }
+    }
+
+    async function handleRunPolicyShowcase(sourceId: string) {
+        setRunningPolicySourceId(sourceId);
+        setErrorMessage(null);
+        try {
+            const status = await runPolicyShowcaseSource(sourceId);
+            setPolicyShowcaseStatus(status);
+            message.success("政策知识摄取已完成，公共政策检索索引已刷新。");
+            await loadAdminWorkspace();
+        } catch (error) {
+            setErrorMessage(extractDetailMessage(error) ?? "运行政策知识摄取失败。");
+        } finally {
+            setRunningPolicySourceId(null);
         }
     }
 
@@ -537,6 +603,148 @@ export function AdminPlaceholderPage() {
                         ) : (
                             <Typography.Text type="secondary">暂无反馈汇总。</Typography.Text>
                         )}
+                    </Card>
+
+                    <Card
+                        className="admin-grid__table-card admin-grid__wide-card"
+                        title="政策知识三段式摄取"
+                        extra={
+                            <Tag color={policyShowcaseStatus?.indexed ? "green" : "orange"}>
+                                {policyShowcaseStatus?.indexed ? "已入库可检索" : "待运行"}
+                            </Tag>
+                        }
+                    >
+                        <Space direction="vertical" size={12} style={{ width: "100%" }}>
+                            <Alert
+                                showIcon
+                                type="info"
+                                message="内置官方政策源演示链路"
+                                description="该入口运行项目内置离线政策源，走真实 crawl_ingest、policy_ingest、分块和公共政策 BM25 检索；不启用线上爬虫调度。"
+                            />
+                            {selectedPolicySource ? (
+                                <>
+                                    <Descriptions column={2} size="small" bordered>
+                                        <Descriptions.Item label="政策源">
+                                            {selectedPolicySource.title}
+                                        </Descriptions.Item>
+                                        <Descriptions.Item label="来源">
+                                            {selectedPolicySource.source_label}
+                                        </Descriptions.Item>
+                                        <Descriptions.Item label="文号">
+                                            {formatMetadataValue(selectedPolicySource.metadata.document_number)}
+                                        </Descriptions.Item>
+                                        <Descriptions.Item label="发布日期">
+                                            {formatMetadataValue(selectedPolicySource.metadata.publication_date)}
+                                        </Descriptions.Item>
+                                        <Descriptions.Item label="原文链接" span={2}>
+                                            <Typography.Link href={selectedPolicySource.source_url} target="_blank" rel="noreferrer">
+                                                {selectedPolicySource.source_url}
+                                            </Typography.Link>
+                                        </Descriptions.Item>
+                                        <Descriptions.Item label="默认检索问题" span={2}>
+                                            {selectedPolicySource.default_query}
+                                        </Descriptions.Item>
+                                        <Descriptions.Item label="知识条目">
+                                            {policyShowcaseStatus?.item?.knowledge_item_id ?? "尚未创建"}
+                                        </Descriptions.Item>
+                                        <Descriptions.Item label="最新任务">
+                                            {policyShowcaseStatus?.latest_task
+                                                ? taskStatusLabelMap[policyShowcaseStatus.latest_task.status] ??
+                                                  policyShowcaseStatus.latest_task.status
+                                                : "暂无任务"}
+                                        </Descriptions.Item>
+                                        <Descriptions.Item label="工作流">
+                                            {policyShowcaseStatus?.workflow
+                                                ? `${policyShowcaseStatus.workflow.workflow_type} / ${policyShowcaseStatus.workflow.status}`
+                                                : "暂无工作流"}
+                                        </Descriptions.Item>
+                                        <Descriptions.Item label="分块数量">{policyChunks.length}</Descriptions.Item>
+                                    </Descriptions>
+                                    <Space size={8} wrap>
+                                        <Button
+                                            type="primary"
+                                            icon={<DatabaseOutlined />}
+                                            loading={runningPolicySourceId === selectedPolicySource.source_id}
+                                            onClick={() => void handleRunPolicyShowcase(selectedPolicySource.source_id)}
+                                        >
+                                            运行/刷新政策摄取
+                                        </Button>
+                                        <Button
+                                            icon={<ReloadOutlined />}
+                                            loading={loadingPolicySourceId === selectedPolicySource.source_id}
+                                            onClick={() => void handleRefreshPolicyShowcase(selectedPolicySource.source_id)}
+                                        >
+                                            刷新状态
+                                        </Button>
+                                        <Button href="/rag-lab">打开 RAG Lab 验证</Button>
+                                    </Space>
+                                    <List
+                                        size="small"
+                                        header={<Typography.Text strong>工作流节点</Typography.Text>}
+                                        dataSource={policyShowcaseStatus?.workflow?.nodes ?? []}
+                                        locale={{ emptyText: "尚未运行摄取工作流。" }}
+                                        renderItem={(node) => (
+                                            <List.Item>
+                                                <Space size={8} wrap>
+                                                    <Typography.Text code>{node.node_id}</Typography.Text>
+                                                    <Tag color={taskStatusColorMap[node.status] ?? "default"}>{node.status}</Tag>
+                                                    {node.error_message ? <Tag color="red">{node.error_message}</Tag> : null}
+                                                </Space>
+                                            </List.Item>
+                                        )}
+                                    />
+                                    <List
+                                        size="small"
+                                        header={<Typography.Text strong>政策分块</Typography.Text>}
+                                        dataSource={policyChunks.slice(0, 3)}
+                                        locale={{ emptyText: "暂无分块，点击运行摄取后生成。" }}
+                                        renderItem={(chunk) => (
+                                            <List.Item>
+                                                <Space direction="vertical" size={4} style={{ width: "100%" }}>
+                                                    <Space size={8} wrap>
+                                                        <Typography.Text code>{chunk.chunk_id}</Typography.Text>
+                                                        <Tag>{chunk.source_type}</Tag>
+                                                        {chunk.issued_at ? <Tag>{chunk.issued_at}</Tag> : null}
+                                                    </Space>
+                                                    <Typography.Paragraph ellipsis={{ rows: 2 }}>
+                                                        {chunk.snippet}
+                                                    </Typography.Paragraph>
+                                                </Space>
+                                            </List.Item>
+                                        )}
+                                    />
+                                    <List
+                                        size="small"
+                                        header={
+                                            <Typography.Text strong>
+                                                检索预览：{policyShowcaseStatus?.retrieval_preview?.query ?? selectedPolicySource.default_query}
+                                            </Typography.Text>
+                                        }
+                                        dataSource={policyRetrievalHits.slice(0, 5)}
+                                        locale={{ emptyText: "暂无命中，运行摄取后可看到 public_policy 证据。" }}
+                                        renderItem={(hit) => (
+                                            <List.Item>
+                                                <Space direction="vertical" size={4} style={{ width: "100%" }}>
+                                                    <Space size={8} wrap>
+                                                        <Tag color={hit.matched_source ? "green" : "default"}>
+                                                            {hit.matched_source ? "本次政策源" : "公共政策"}
+                                                        </Tag>
+                                                        <Tag>{hit.source_type}</Tag>
+                                                        <Typography.Text type="secondary">score {hit.score.toFixed(3)}</Typography.Text>
+                                                    </Space>
+                                                    <Typography.Text strong>{hit.title}</Typography.Text>
+                                                    <Typography.Paragraph ellipsis={{ rows: 2 }}>
+                                                        {hit.snippet}
+                                                    </Typography.Paragraph>
+                                                </Space>
+                                            </List.Item>
+                                        )}
+                                    />
+                                </>
+                            ) : (
+                                <Empty description="暂无可用政策源。" />
+                            )}
+                        </Space>
                     </Card>
 
                     <Card
@@ -688,6 +896,7 @@ const sourceTypeLabelMap: Record<string, string> = {
     uploaded_file: "上传文件",
     private_sample_repo: "共享知识条目",
     knowledge_item: "知识条目",
+    public_policy_web: "官方政策网页",
 };
 
 const taskTypeLabelMap: Record<string, string> = {
@@ -695,6 +904,8 @@ const taskTypeLabelMap: Record<string, string> = {
     rebuild: "重建索引",
     rescan: "扫描变动",
     retry: "重试任务",
+    crawl_ingest: "政策采集入库",
+    crawl_refresh: "政策采集刷新",
 };
 
 const taskStatusLabelMap: Record<string, string> = {
@@ -708,6 +919,8 @@ const taskStatusColorMap: Record<string, string> = {
     queued: "default",
     running: "processing",
     succeeded: "green",
+    completed: "green",
+    skipped: "default",
     failed: "red",
 };
 
@@ -752,6 +965,16 @@ function formatTimestamp(value: string) {
         hour: "2-digit",
         minute: "2-digit",
     });
+}
+
+function formatMetadataValue(value: unknown) {
+    if (typeof value === "string" && value.trim()) {
+        return value;
+    }
+    if (typeof value === "number" || typeof value === "boolean") {
+        return String(value);
+    }
+    return "暂无";
 }
 
 function extractDetailMessage(value: unknown): string | null {

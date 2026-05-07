@@ -13,12 +13,24 @@ from app.admin.schemas import (
     KnowledgeRefreshTask,
     KnowledgeRefreshStatus,
     KnowledgeRefreshScope,
+    PolicyShowcaseChunkSummary,
+    PolicyShowcaseRetrievalHit,
+    PolicyShowcaseRetrievalPreview,
+    PolicyShowcaseSourceSummary,
+    PolicyShowcaseStatus,
+    PolicyShowcaseWorkflowNodeSummary,
+    PolicyShowcaseWorkflowSummary,
 )
 from app.ai_runtime.providers.factory import get_chat_provider
 from app.auth.schemas import UserRole
 from app.auth.service import AuthService, get_auth_service
 from app.core.config import get_settings
 from app.knowledge import get_knowledge_service
+from app.knowledge.policy_showcase import (
+    ShowcasePolicySource,
+    get_showcase_policy_source,
+    list_showcase_policy_sources,
+)
 from app.private_samples.catalog import (
     list_admin_private_sample_catalog,
     refresh_private_sample_catalog,
@@ -165,6 +177,139 @@ class AdminService:
                 sqlite_db_path=self.sqlite_db_path,
             )
         ]
+
+    def list_policy_showcase_sources(self) -> list[PolicyShowcaseSourceSummary]:
+        return [self._policy_showcase_source_summary(source) for source in list_showcase_policy_sources()]
+
+    def run_policy_showcase_source(
+        self,
+        *,
+        source_id: str,
+        requested_by_user_id: str | None,
+    ) -> PolicyShowcaseStatus:
+        source = get_showcase_policy_source(source_id)
+        knowledge_service = get_knowledge_service()
+        knowledge_service.create_policy_item_from_crawled_document(
+            crawled_document=source.to_crawled_document(),
+            requested_by_user_id=requested_by_user_id,
+        )
+        knowledge_service.run_queued_tasks()
+        self._clear_retrieval_caches("public_policy")
+        return self.get_policy_showcase_status(source_id=source_id)
+
+    def get_policy_showcase_status(self, *, source_id: str) -> PolicyShowcaseStatus:
+        source = get_showcase_policy_source(source_id)
+        item = self._get_policy_showcase_item(source)
+        chunks: list[PolicyShowcaseChunkSummary] = []
+        latest_task = None
+        workflow = None
+        retrieval_preview = None
+
+        if item is not None:
+            knowledge_service = get_knowledge_service()
+            chunks = [
+                PolicyShowcaseChunkSummary.model_validate(chunk.model_dump(mode="python"))
+                for chunk in knowledge_service.list_chunks(knowledge_item_id=item.knowledge_item_id)
+            ]
+            tasks = knowledge_service.list_tasks(
+                knowledge_item_id=item.knowledge_item_id,
+                include_shared=True,
+            )
+            if tasks:
+                latest_task = KnowledgeTaskSummary.model_validate(tasks[0].model_dump())
+            latest_workflow = knowledge_service.store.get_latest_workflow_run(
+                knowledge_item_id=item.knowledge_item_id,
+            )
+            if latest_workflow is not None:
+                workflow = PolicyShowcaseWorkflowSummary(
+                    workflow_id=latest_workflow.workflow_id,
+                    workflow_type=latest_workflow.workflow_type,
+                    status=latest_workflow.status,
+                    current_node=latest_workflow.current_node,
+                    error_message=latest_workflow.error_message,
+                    created_at=latest_workflow.created_at,
+                    updated_at=latest_workflow.updated_at,
+                    nodes=[
+                        PolicyShowcaseWorkflowNodeSummary(
+                            node_id=node.node_id,
+                            node_type=node.node_type,
+                            status=node.status,
+                            input_ref=node.input_ref,
+                            output_ref=node.output_ref,
+                            started_at=node.started_at,
+                            finished_at=node.finished_at,
+                            error_message=node.error_message,
+                            retry_count=node.retry_count,
+                            metadata=node.metadata,
+                        )
+                        for node in latest_workflow.nodes
+                    ],
+                )
+            retrieval_preview = self.get_policy_showcase_retrieval_preview(
+                source_id=source_id,
+                query=source.default_query,
+                top_k=5,
+            )
+
+        return PolicyShowcaseStatus(
+            source=self._policy_showcase_source_summary(source),
+            item=KnowledgeItemSummary.model_validate(item.model_dump()) if item is not None else None,
+            latest_task=latest_task,
+            workflow=workflow,
+            chunks=chunks,
+            retrieval_preview=retrieval_preview,
+            indexed=item is not None and item.index_status == "indexed" and bool(chunks),
+        )
+
+    def list_policy_showcase_chunks(self, *, source_id: str) -> list[PolicyShowcaseChunkSummary]:
+        source = get_showcase_policy_source(source_id)
+        item = self._get_policy_showcase_item(source)
+        if item is None:
+            return []
+        knowledge_service = get_knowledge_service()
+        return [
+            PolicyShowcaseChunkSummary.model_validate(chunk.model_dump(mode="python"))
+            for chunk in knowledge_service.list_chunks(knowledge_item_id=item.knowledge_item_id)
+        ]
+
+    def get_policy_showcase_retrieval_preview(
+        self,
+        *,
+        source_id: str,
+        query: str | None = None,
+        top_k: int = 5,
+    ) -> PolicyShowcaseRetrievalPreview:
+        source = get_showcase_policy_source(source_id)
+        item = self._get_policy_showcase_item(source)
+        resolved_query = (query or source.default_query).strip() or source.default_query
+        resolved_top_k = max(1, min(int(top_k), 10))
+        self._clear_retrieval_caches("public_policy")
+        result = get_public_policy_retriever().search(question=resolved_query, top_k=resolved_top_k)
+        hits = [
+            PolicyShowcaseRetrievalHit(
+                chunk_id=hit.chunk_id,
+                knowledge_item_id=hit.knowledge_item_id,
+                title=hit.title,
+                source_type=hit.source_type,
+                source=hit.source,
+                source_url=hit.source_url,
+                issued_at=hit.issued_at,
+                region=hit.region,
+                doc_type=hit.doc_type,
+                snippet=hit.snippet,
+                score=hit.score,
+                matched_source=item is not None
+                and (hit.knowledge_item_id == item.knowledge_item_id or hit.source_url == source.source_url),
+            )
+            for hit in result.hits
+        ]
+        return PolicyShowcaseRetrievalPreview(
+            source_id=source.source_id,
+            query=resolved_query,
+            top_k=resolved_top_k,
+            total_hits=result.total_hits,
+            hits=hits,
+        )
 
     def update_private_sample(self, *, doc_id: str, is_enabled: bool, session_attachable: bool, updated_by_user_id: str):
         knowledge_service = get_knowledge_service()
@@ -433,6 +578,29 @@ class AdminService:
             load_private_sample_documents.cache_clear()
             get_private_sample_retriever.cache_clear()
         get_mixed_scope_retriever.cache_clear()
+
+    @staticmethod
+    def _policy_showcase_source_summary(source: ShowcasePolicySource) -> PolicyShowcaseSourceSummary:
+        return PolicyShowcaseSourceSummary(
+            source_id=source.source_id,
+            title=source.title,
+            source_url=source.source_url,
+            source_label=source.source_label,
+            description=source.description,
+            default_query=source.default_query,
+            content_type=source.content_type,
+            metadata=source.metadata,
+        )
+
+    @staticmethod
+    def _get_policy_showcase_item(source: ShowcasePolicySource):
+        knowledge_service = get_knowledge_service()
+        return knowledge_service.store.get_item_by_source(
+            owner_user_id=None,
+            library_scope="shared",
+            source_type="public_policy_web",
+            source_ref=source.source_url,
+        )
 
     @staticmethod
     def _validate_reloaded_sources(scope: KnowledgeRefreshScope) -> str:

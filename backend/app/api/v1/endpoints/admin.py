@@ -6,6 +6,10 @@ from app.admin.schemas import (
     AdminSystemStatus,
     AdminUserSummary,
     KnowledgeRefreshTask,
+    PolicyShowcaseChunkSummary,
+    PolicyShowcaseRetrievalPreview,
+    PolicyShowcaseSourceSummary,
+    PolicyShowcaseStatus,
     TriggerKnowledgeRefreshRequest,
     UpdateAdminPrivateSampleRequest,
     UpdateAdminUserRequest,
@@ -84,6 +88,72 @@ def list_admin_private_samples(
 ) -> list[AdminPrivateSampleItem]:
     del current_user
     return get_admin_service().list_private_samples()
+
+
+@router.get("/policy-sources", response_model=list[PolicyShowcaseSourceSummary])
+def list_admin_policy_sources(
+    current_user: AuthenticatedUser = Depends(require_admin),
+) -> list[PolicyShowcaseSourceSummary]:
+    del current_user
+    return get_admin_service().list_policy_showcase_sources()
+
+
+@router.post("/policy-sources/{source_id}/run", response_model=PolicyShowcaseStatus)
+def run_admin_policy_source(
+    source_id: str,
+    current_user: AuthenticatedUser = Depends(require_admin),
+) -> PolicyShowcaseStatus:
+    try:
+        return get_admin_service().run_policy_showcase_source(
+            source_id=source_id,
+            requested_by_user_id=current_user.user_id,
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Policy source not found.")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/policy-sources/{source_id}/status", response_model=PolicyShowcaseStatus)
+def get_admin_policy_source_status(
+    source_id: str,
+    current_user: AuthenticatedUser = Depends(require_admin),
+) -> PolicyShowcaseStatus:
+    del current_user
+    try:
+        return get_admin_service().get_policy_showcase_status(source_id=source_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Policy source not found.")
+
+
+@router.get("/policy-sources/{source_id}/chunks", response_model=list[PolicyShowcaseChunkSummary])
+def list_admin_policy_source_chunks(
+    source_id: str,
+    current_user: AuthenticatedUser = Depends(require_admin),
+) -> list[PolicyShowcaseChunkSummary]:
+    del current_user
+    try:
+        return get_admin_service().list_policy_showcase_chunks(source_id=source_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Policy source not found.")
+
+
+@router.get("/policy-sources/{source_id}/retrieval-preview", response_model=PolicyShowcaseRetrievalPreview)
+def get_admin_policy_source_retrieval_preview(
+    source_id: str,
+    query: str | None = None,
+    top_k: int = 5,
+    current_user: AuthenticatedUser = Depends(require_admin),
+) -> PolicyShowcaseRetrievalPreview:
+    del current_user
+    try:
+        return get_admin_service().get_policy_showcase_retrieval_preview(
+            source_id=source_id,
+            query=query,
+            top_k=top_k,
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Policy source not found.")
 
 
 @router.patch("/private-samples/{doc_id}", response_model=AdminPrivateSampleItem)

@@ -2,8 +2,10 @@ from fastapi.testclient import TestClient
 
 from app.admin.service import AdminService
 from app.knowledge import KnowledgeService
+from app.knowledge.runner import KnowledgeTaskRunner
 from app.knowledge.store import KnowledgeStore
 from app.main import app
+from app.retrieval.public_retriever import get_public_policy_retriever
 from tests.test_helpers import TEST_PASSWORD, patch_test_auth_service
 
 client = TestClient(app)
@@ -123,3 +125,69 @@ def test_admin_routes_manage_users_private_samples_and_refresh(monkeypatch, tmp_
     system_response = client.get("/api/v1/admin/system/status")
     assert system_response.status_code == 200
     assert system_response.json()["total_users"] >= 2
+
+
+def test_admin_policy_showcase_source_runs_to_retrievable_public_policy(monkeypatch, tmp_path) -> None:
+    db_path = tmp_path / "carbonrag.sqlite3"
+    auth_service = patch_test_auth_service(monkeypatch, db_path=db_path)
+    auth_service.ensure_seed_admin_and_backfill()
+    admin_service = build_admin_service(auth_service=auth_service, db_path=db_path)
+    knowledge_service = build_knowledge_service(db_path=db_path)
+    runner = KnowledgeTaskRunner()
+    monkeypatch.setattr("app.api.v1.endpoints.admin.get_admin_service", lambda: admin_service)
+    monkeypatch.setattr("app.private_samples.catalog.get_knowledge_service", lambda: knowledge_service)
+    monkeypatch.setattr("app.admin.service.get_knowledge_service", lambda: knowledge_service)
+    monkeypatch.setattr("app.knowledge.service.get_knowledge_service", lambda: knowledge_service)
+    monkeypatch.setattr("app.knowledge.get_knowledge_service", lambda: knowledge_service)
+    monkeypatch.setattr("app.knowledge.runner.get_knowledge_task_runner", lambda: runner)
+    get_public_policy_retriever.cache_clear()
+
+    client.cookies.clear()
+    client.post("/api/v1/auth/register", json={"username": "member_policy", "password": TEST_PASSWORD})
+    client.post("/api/v1/auth/login", json={"username": "member_policy", "password": TEST_PASSWORD})
+    blocked_response = client.get("/api/v1/admin/policy-sources")
+    assert blocked_response.status_code == 403
+
+    client.cookies.clear()
+    login_seed_admin_and_change_password()
+
+    sources_response = client.get("/api/v1/admin/policy-sources")
+    assert sources_response.status_code == 200
+    source = sources_response.json()[0]
+    assert source["source_id"] == "low-carbon-campus-action"
+
+    empty_status_response = client.get(f"/api/v1/admin/policy-sources/{source['source_id']}/status")
+    assert empty_status_response.status_code == 200
+    assert empty_status_response.json()["indexed"] is False
+    assert empty_status_response.json()["item"] is None
+
+    run_response = client.post(f"/api/v1/admin/policy-sources/{source['source_id']}/run")
+    assert run_response.status_code == 200
+    run_payload = run_response.json()
+    assert run_payload["indexed"] is True
+    assert run_payload["item"]["source_type"] == "public_policy_web"
+    assert run_payload["latest_task"]["task_type"] == "crawl_ingest"
+    assert run_payload["latest_task"]["status"] == "succeeded"
+    assert run_payload["workflow"]["workflow_type"] == "policy_ingest"
+    assert run_payload["workflow"]["status"] == "completed"
+    assert run_payload["chunks"]
+    assert run_payload["chunks"][0]["source_type"] == "public_policy"
+
+    chunks_response = client.get(f"/api/v1/admin/policy-sources/{source['source_id']}/chunks")
+    assert chunks_response.status_code == 200
+    assert chunks_response.json()[0]["metadata"]["original_source_type"] == "public_policy_web"
+
+    preview_response = client.get(
+        f"/api/v1/admin/policy-sources/{source['source_id']}/retrieval-preview",
+        params={"query": source["default_query"], "top_k": 5},
+    )
+    assert preview_response.status_code == 200
+    preview_payload = preview_response.json()
+    assert preview_payload["total_hits"] >= 1
+    assert any(hit["matched_source"] for hit in preview_payload["hits"])
+    assert all(hit["source_type"] == "public_policy" for hit in preview_payload["hits"])
+
+    item_count = len(knowledge_service.list_admin_items(source_type="public_policy_web"))
+    second_run_response = client.post(f"/api/v1/admin/policy-sources/{source['source_id']}/run")
+    assert second_run_response.status_code == 200
+    assert len(knowledge_service.list_admin_items(source_type="public_policy_web")) == item_count

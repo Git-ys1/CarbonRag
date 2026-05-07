@@ -42,6 +42,8 @@ coverage/
 # Runtime outputs
 data/outputs/*
 !data/outputs/.gitkeep
+data/public/policy_staging/
+backend/data/public/policy_staging/
 uploads/
 runtime/
 *.sqlite
