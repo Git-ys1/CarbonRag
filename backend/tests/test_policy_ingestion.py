@@ -23,9 +23,12 @@ from app.knowledge.policy_ingestion import (
     validate_policy_crawl_request,
 )
 from app.knowledge.schemas import KnowledgeTask
+from app.knowledge.runner import KnowledgeTaskRunner
+from app.knowledge.service import KnowledgeService
 from app.knowledge.store import KnowledgeStore
 from app.rag.contracts import ParsedDocument
 from app.rag.workflow import build_policy_ingest_workflow
+from app.retrieval.public_retriever import get_public_policy_retriever
 
 
 def test_policy_crawler_allowlist_accepts_official_domains() -> None:
@@ -251,6 +254,66 @@ def test_policy_workflow_and_task_types_are_available() -> None:
     assert task.task_type == "crawl_ingest"
 
 
+def test_crawled_policy_document_can_be_indexed_and_retrieved(tmp_path, monkeypatch) -> None:
+    db_path = tmp_path / "carbonrag.sqlite3"
+    store = KnowledgeStore(sqlite_db_path=db_path)
+    runner = KnowledgeTaskRunner()
+    service = _NoBootstrapKnowledgeService(store=store, session_service=_FakeSessionService())
+    monkeypatch.setattr("app.knowledge.runner.get_knowledge_task_runner", lambda: runner)
+    monkeypatch.setattr("app.knowledge.service.get_knowledge_service", lambda: service)
+    monkeypatch.setattr("app.knowledge.get_knowledge_service", lambda: service)
+    get_public_policy_retriever.cache_clear()
+
+    crawled = CrawledDocument(
+        url="https://www.gov.cn/zhengce/content/crawl-index.htm",
+        title="低碳韧性校园建设行动方案",
+        content="""
+        <html><head><title>低碳韧性校园建设行动方案</title></head>
+        <body>
+          <h1>低碳韧性校园建设行动方案</h1>
+          <p>国办发〔2026〕8号 2026年5月1日</p>
+          <p>第一条 推动低碳韧性校园建设，完善碳核算、节能改造和绿色低碳教育。</p>
+          <p>第二条 建立校园能源排放数据台账，鼓励公开透明的政策评估。</p>
+        </body></html>
+        """,
+    )
+
+    task = service.create_policy_item_from_crawled_document(
+        crawled_document=crawled,
+        staging_dir=tmp_path / "staging",
+    )
+    processed = runner.run_once()
+
+    assert task.task_id in processed
+    refreshed_task = store.get_task(task.task_id)
+    assert refreshed_task is not None
+    assert refreshed_task.status == "succeeded"
+    item = store.get_item(task.knowledge_item_id or "")
+    assert item is not None
+    assert item.source_type == "public_policy_web"
+    assert item.parse_status == "parsed"
+    assert item.ingest_status == "ingested"
+    assert item.index_status == "indexed"
+
+    workflow = store.get_latest_workflow_run(knowledge_item_id=item.knowledge_item_id)
+    assert workflow is not None
+    assert workflow.workflow_type == "policy_ingest"
+    assert workflow.status == "completed"
+    assert workflow.current_node == "index_completed"
+
+    chunks = store.list_chunks(item.knowledge_item_id)
+    assert chunks
+    assert chunks[0].source_type == "public_policy"
+    assert chunks[0].metadata["original_source_type"] == "public_policy_web"
+    assert chunks[0].metadata["source_url"] == crawled.url
+    assert chunks[0].metadata["clause_anchors"]
+
+    get_public_policy_retriever.cache_clear()
+    result = get_public_policy_retriever().search(question="低碳韧性校园 碳核算", top_k=5)
+
+    assert any(hit.knowledge_item_id == item.knowledge_item_id for hit in result.hits)
+
+
 class _FakeParserRegistry:
     def __init__(self) -> None:
         self.calls: list[tuple[Path, str]] = []
@@ -301,3 +364,12 @@ class _LocalHttpServer:
 
 def _local_http_server(directory: Path) -> _LocalHttpServer:
     return _LocalHttpServer(directory)
+
+
+class _NoBootstrapKnowledgeService(KnowledgeService):
+    def bootstrap_shared_library(self):  # type: ignore[override]
+        return []
+
+
+class _FakeSessionService:
+    knowledge_service = None

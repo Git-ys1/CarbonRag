@@ -1,7 +1,9 @@
 from functools import lru_cache
+from typing import Any
 
 import jieba
 
+from app.knowledge.schemas import KnowledgeChunk
 from app.retrieval.bm25_compat import BM25Okapi
 from app.retrieval.public_chunker import chunk_public_policy_document
 from app.retrieval.public_corpus_loader import load_public_policy_documents
@@ -22,6 +24,7 @@ class PublicPolicyRetriever:
         self.chunks: list[RetrievedChunk] = []
         for document in self.documents:
             self.chunks.extend(chunk_public_policy_document(document))
+        self.chunks.extend(_load_runtime_policy_web_chunks())
         self._corpus_tokens = [_tokenize(chunk.snippet) for chunk in self.chunks]
         self._bm25 = BM25Okapi(self._corpus_tokens)
 
@@ -72,3 +75,49 @@ class PublicPolicyRetriever:
 @lru_cache(maxsize=1)
 def get_public_policy_retriever() -> PublicPolicyRetriever:
     return PublicPolicyRetriever()
+
+
+def _load_runtime_policy_web_chunks() -> list[RetrievedChunk]:
+    try:
+        from app.knowledge import get_knowledge_service
+
+        service = get_knowledge_service()
+        items = service.list_admin_items(
+            source_type="public_policy_web",
+            index_status="indexed",
+            is_enabled=True,
+        )
+        chunks: list[RetrievedChunk] = []
+        for item in items:
+            for chunk in service.list_chunks(knowledge_item_id=item.knowledge_item_id):
+                chunks.append(_runtime_policy_chunk_to_retrieved_chunk(chunk))
+        return chunks
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _runtime_policy_chunk_to_retrieved_chunk(chunk: KnowledgeChunk) -> RetrievedChunk:
+    return RetrievedChunk(
+        doc_id=chunk.knowledge_item_id,
+        knowledge_item_id=chunk.knowledge_item_id,
+        title=chunk.title,
+        source_type="public_policy",
+        source=chunk.source,
+        source_url=chunk.source_url,
+        issued_at=chunk.issued_at,
+        region=_optional_str(chunk.region),
+        doc_type=_optional_str(chunk.doc_type),
+        sample_type=_optional_str(chunk.sample_type),
+        business_topic=_optional_str(chunk.business_topic),
+        library_scope=chunk.library_scope if chunk.library_scope in {"personal", "shared"} else None,  # type: ignore[arg-type]
+        chunk_id=chunk.chunk_id,
+        snippet=chunk.snippet,
+        score=0.0,
+    )
+
+
+def _optional_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None

@@ -28,6 +28,8 @@ The current knowledge task flow covers uploads and shared repo samples. The RAG 
 - Parse HTML locally with a small stdlib extractor, parse PDF through `ParserRegistry` preferring Docling with existing fallback, and treat OFD as a conversion step through an optional `OfdrwConverterAdapter`.
 - Store policy metadata on chunks through a `metadata`/`metadata_json` extension while preserving existing scalar fields and evidence source behavior.
 - Add policy-specific workflow nodes (`crawl_source`, `stage_crawled_document`, `normalize_policy_metadata`) alongside existing ingest nodes.
+- Add a `KnowledgeService.create_policy_item_from_crawled_document` entrypoint for offline crawler results. It stages content, creates or refreshes a shared `public_policy_web` item, and enqueues `crawl_ingest` without exposing live crawling as a default read path.
+- Let `PublicPolicyRetriever` append indexed `public_policy_web` runtime chunks to the existing checked-in public policy corpus, preserving the outward `public_policy` evidence type.
 
 ## Risks / Trade-offs
 
@@ -36,3 +38,4 @@ The current knowledge task flow covers uploads and shared repo samples. The RAG 
 - Adding chunk metadata storage touches runtime DB schema → use additive `metadata_json` columns and default empty objects.
 - Public policy web source type could break existing retrieval literals → keep chunk evidence mapped to `public_policy`.
 - Scrapy may not be installed in CI → keep real crawler smoke tests skipped unless the optional dependency is present.
+- Runtime policy chunks are loaded through the same BM25 public retriever cache, so ingestion must clear public/mixed retriever caches after successful indexing.

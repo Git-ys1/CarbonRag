@@ -24,6 +24,7 @@ from app.private_samples.overrides import load_private_sample_override_map, upda
 from app.retrieval.private_corpus_loader import load_private_sample_manifest, resolve_private_corpus_dir
 
 if TYPE_CHECKING:
+    from app.knowledge.policy_ingestion import CrawledDocument
     from app.session.service import SessionService
 
 
@@ -143,6 +144,54 @@ class KnowledgeService:
             requested_by_user_id=owner_user_id,
             task_type="upload_ingest",
             summary="上传文件已进入知识库入队流程。",
+        )
+
+    def create_policy_item_from_crawled_document(
+        self,
+        *,
+        crawled_document: "CrawledDocument | dict",
+        staging_dir: str | Path | None = None,
+        requested_by_user_id: str | None = None,
+    ) -> KnowledgeTask:
+        from app.core.config import get_settings
+        from app.knowledge.policy_ingestion import (
+            CrawledDocument,
+            build_policy_web_knowledge_item,
+            stage_crawled_document,
+        )
+
+        document = crawled_document if isinstance(crawled_document, CrawledDocument) else CrawledDocument.model_validate(crawled_document)
+        resolved_staging_dir = Path(staging_dir) if staging_dir is not None else Path(get_settings().public_data_dir) / "policy_staging"
+        staged = stage_crawled_document(document, staging_dir=resolved_staging_dir)
+        existing = self.store.get_item_by_source(
+            owner_user_id=None,
+            library_scope="shared",
+            source_type="public_policy_web",
+            source_ref=document.url,
+        )
+        now = self.store.utcnow()
+        item = build_policy_web_knowledge_item(
+            staged=staged,
+            knowledge_item_id=existing.knowledge_item_id if existing else None,
+            created_at=existing.created_at if existing else now,
+        )
+        if existing is not None:
+            item = item.model_copy(
+                update={
+                    "is_enabled": existing.is_enabled,
+                    "session_attachable": existing.session_attachable,
+                    "index_status": "stale",
+                    "updated_at": now,
+                    "last_indexed_at": existing.last_indexed_at,
+                }
+            )
+        self.store.upsert_item(item=item)
+        return self._enqueue_item_task(
+            knowledge_item_id=item.knowledge_item_id,
+            owner_user_id=None,
+            requested_by_user_id=requested_by_user_id,
+            task_type="crawl_ingest",
+            summary="官方政策采集结果已进入知识库入库流程。",
         )
 
     def list_visible_items(
@@ -394,6 +443,17 @@ class KnowledgeService:
         if item is None:
             self.store.finish_task(task_id=task_id, status="failed", summary="知识条目不存在。", error_detail="knowledge item missing")
             return
+        if task.task_type in {"crawl_ingest", "crawl_refresh"} and item.source_type != "public_policy_web":
+            self.store.finish_task(
+                task_id=task_id,
+                status="failed",
+                summary="政策采集任务目标类型不正确。",
+                error_detail=f"crawl task cannot process source_type={item.source_type}",
+            )
+            return
+        if item.source_type == "public_policy_web":
+            self._process_policy_task(task=task, item=item)
+            return
 
         self.store.mark_item_stage(
             knowledge_item_id=item.knowledge_item_id,
@@ -510,6 +570,166 @@ class KnowledgeService:
             )
             self.store.finish_task(task_id=task_id, status="failed", summary="知识任务执行失败。", error_detail=str(exc))
 
+    def _process_policy_task(self, *, task: KnowledgeTask, item: KnowledgeItem) -> None:
+        self.store.mark_item_stage(
+            knowledge_item_id=item.knowledge_item_id,
+            parse_status="running",
+            ingest_status="running",
+            index_status="running",
+            last_error=None,
+        )
+        from app.knowledge.policy_ingestion import (
+            PolicyDocumentParser,
+            build_policy_chunks,
+            normalize_policy_governance_metadata,
+        )
+        from app.rag.workflow import WorkflowRecorder, build_policy_ingest_workflow
+
+        workflow = build_policy_ingest_workflow(
+            knowledge_item_id=item.knowledge_item_id,
+            owner_user_id=item.owner_user_id,
+            tenant_id=item.tenant_id,
+            visibility=item.visibility,
+            created_by=task.requested_by_user_id or item.created_by,
+            metadata={
+                "task_id": task.task_id,
+                "task_type": task.task_type,
+                "source_url": item.source_url,
+            },
+        )
+        recorder = WorkflowRecorder(workflow)
+        recorder.start_run()
+        current_node = "crawl_source"
+        try:
+            recorder.start_node(
+                "crawl_source",
+                input_ref=item.source_ref,
+                state={"source_url": item.source_url, "source_hash": item.source_hash},
+            )
+            recorder.complete_node(
+                "crawl_source",
+                output_ref=item.source_url or item.source_ref,
+                state={"source_type": item.source_type, "source": item.source},
+            )
+            current_node = "stage_crawled_document"
+            recorder.start_node(
+                "stage_crawled_document",
+                input_ref=item.source_ref,
+                state={"storage_path": item.storage_path},
+            )
+            storage_path = Path(item.storage_path)
+            if not storage_path.exists():
+                raise KnowledgeParseError(f"staged policy document not found: {storage_path}")
+            recorder.complete_node(
+                "stage_crawled_document",
+                output_ref=item.storage_path,
+                state={"mime_type": item.mime_type, "source_mtime": item.source_mtime},
+            )
+            current_node = "parse_document"
+            recorder.start_node("parse_document", input_ref=item.storage_path, state={"mime_type": item.mime_type})
+            parsed = PolicyDocumentParser().parse_staged_document(
+                path=storage_path,
+                content_type=item.mime_type,
+                source_url=item.source_url,
+                title=item.title,
+            )
+            if not parsed.text.strip():
+                parse_error = parsed.metadata.get("parse_error") or "Policy document parsed to empty text."
+                raise KnowledgeParseError(str(parse_error))
+            recorder.complete_node(
+                "parse_document",
+                output_ref=item.storage_path,
+                state={
+                    "text_length": len(parsed.text),
+                    "parser_name": parsed.parser_name,
+                    "quality_score": parsed.quality_score,
+                },
+            )
+            current_node = "normalize_policy_metadata"
+            recorder.start_node("normalize_policy_metadata", input_ref=item.storage_path)
+            policy_metadata = normalize_policy_governance_metadata(parsed=parsed, source_url=item.source_url)
+            policy_metadata = policy_metadata.model_copy(
+                update={
+                    "content_hash": item.source_hash or policy_metadata.content_hash,
+                    "metadata": {
+                        **policy_metadata.metadata,
+                        "knowledge_item_id": item.knowledge_item_id,
+                        "storage_path": item.storage_path,
+                        "source_hash": item.source_hash,
+                        "source_mtime": item.source_mtime,
+                    },
+                }
+            )
+            recorder.complete_node(
+                "normalize_policy_metadata",
+                output_ref=item.knowledge_item_id,
+                state={
+                    "issuing_authority": policy_metadata.issuing_authority,
+                    "region": policy_metadata.region,
+                    "topic_tags": policy_metadata.topic_tags,
+                    "clause_anchor_count": len(policy_metadata.clause_anchors),
+                },
+            )
+            current_node = "build_chunks"
+            recorder.start_node("build_chunks", input_ref=item.storage_path)
+            chunks = build_policy_chunks(
+                item=item,
+                parsed=parsed,
+                policy_metadata=policy_metadata,
+                created_at=self.store.utcnow(),
+            )
+            recorder.complete_node(
+                "build_chunks",
+                output_ref=item.knowledge_item_id,
+                state={"chunk_count": len(chunks), "chunk_source_type": "public_policy"},
+            )
+            current_node = "upsert_vector_index"
+            recorder.start_node("upsert_vector_index", input_ref=item.knowledge_item_id)
+            self.store.replace_chunks(knowledge_item_id=item.knowledge_item_id, chunks=chunks, indexed_at=self.store.utcnow())
+            recorder.complete_node(
+                "upsert_vector_index",
+                output_ref=item.knowledge_item_id,
+                state={"chunk_count": len(chunks), "vector_backend": "current_runtime_chunks"},
+            )
+            current_node = "index_completed"
+            recorder.start_node("index_completed", input_ref=item.knowledge_item_id)
+            recorder.complete_node(
+                "index_completed",
+                output_ref=item.knowledge_item_id,
+                state={"parse_status": "parsed", "ingest_status": "ingested", "index_status": "indexed"},
+            )
+            recorder.complete_run(state={"chunk_count": len(chunks), "completed_task_id": task.task_id})
+            self.store.save_workflow_run(workflow)
+            self.store.finish_task(
+                task_id=task.task_id,
+                status="succeeded",
+                summary=f"官方政策知识条目已完成解析、治理和索引，共生成 {len(chunks)} 个片段。",
+                error_detail=None,
+            )
+            self._clear_private_retrieval_caches()
+        except KnowledgeParseError as exc:
+            recorder.fail_node(current_node, error_message=str(exc), state={"error_type": type(exc).__name__})
+            self.store.save_workflow_run(workflow)
+            self.store.mark_item_stage(
+                knowledge_item_id=item.knowledge_item_id,
+                parse_status="parse_failed",
+                ingest_status="ingest_failed",
+                index_status="index_failed",
+                last_error=str(exc),
+            )
+            self.store.finish_task(task_id=task.task_id, status="failed", summary="政策文档解析失败。", error_detail=str(exc))
+        except Exception as exc:  # noqa: BLE001
+            recorder.fail_node(current_node, error_message=str(exc), state={"error_type": type(exc).__name__})
+            self.store.save_workflow_run(workflow)
+            self.store.mark_item_stage(
+                knowledge_item_id=item.knowledge_item_id,
+                parse_status="parse_failed",
+                ingest_status="ingest_failed",
+                index_status="index_failed",
+                last_error=str(exc),
+            )
+            self.store.finish_task(task_id=task.task_id, status="failed", summary="政策知识任务执行失败。", error_detail=str(exc))
+
     def list_session_attachable_items(self, *, owner_user_id: str) -> list[KnowledgeItem]:
         return self.store.list_visible_items(
             owner_user_id=owner_user_id,
@@ -593,8 +813,10 @@ class KnowledgeService:
     def _clear_private_retrieval_caches() -> None:
         from app.retrieval.mixed_retriever import get_mixed_scope_retriever
         from app.retrieval.private_retriever import get_private_sample_retriever
+        from app.retrieval.public_retriever import get_public_policy_retriever
 
         get_private_sample_retriever.cache_clear()
+        get_public_policy_retriever.cache_clear()
         get_mixed_scope_retriever.cache_clear()
 
 

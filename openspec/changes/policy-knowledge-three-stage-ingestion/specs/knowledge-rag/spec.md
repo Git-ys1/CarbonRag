@@ -28,6 +28,12 @@ CarbonRag SHALL process official policy knowledge through collection, parsing, a
 - **WHEN** a crawler returns a policy document
 - **THEN** CarbonRag stages the crawled document before parsing and chunk indexing
 
+#### Scenario: Crawled document enters knowledge task indexing
+- **WHEN** a staged crawled policy document is accepted into the knowledge service
+- **THEN** CarbonRag creates or refreshes a shared `public_policy_web` knowledge item
+- **AND** enqueues a `crawl_ingest` task
+- **AND** records the `policy_ingest` workflow checkpoints through parsing, metadata normalization, chunking, and indexing
+
 #### Scenario: HTML/PDF/OFD parsing routes safely
 - **WHEN** a staged policy document is HTML
 - **THEN** CarbonRag extracts readable text without requiring Docling or MinerU
@@ -47,6 +53,11 @@ CarbonRag SHALL index policy web chunks so existing public retrieval behavior re
 - **WHEN** a `public_policy_web` knowledge item is chunked
 - **THEN** generated retrieval chunks use the existing `public_policy` source type
 - **AND** chunk metadata preserves source URL, crawl metadata, content hash, and clause anchors
+
+#### Scenario: Indexed policy web chunks participate in public retrieval
+- **WHEN** a `public_policy_web` knowledge item is indexed
+- **THEN** public policy BM25 retrieval can return its chunks as `public_policy` evidence
+- **AND** existing public policy corpus retrieval remains available
 
 #### Scenario: Default flows remain unchanged
 - **WHEN** policy ingestion support is added

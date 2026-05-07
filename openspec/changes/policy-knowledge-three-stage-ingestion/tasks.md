@@ -42,7 +42,15 @@
 - [x] 6.3 Keep Scrapy optional and disabled by default.
 - [x] 6.4 Validate crawler tests, backend regression, OpenSpec, and PR readiness.
 
-## 7. Deferred Follow-Up Slices
+## 7. Slice F: Crawl Result Knowledge Indexing
+
+- [x] 7.1 Add a service entrypoint that stages a `CrawledDocument`, creates or refreshes a `public_policy_web` knowledge item, and enqueues `crawl_ingest`.
+- [x] 7.2 Process `crawl_ingest` through the `policy_ingest` workflow using the policy parser, governance metadata normalization, chunking, and runtime chunk indexing.
+- [x] 7.3 Include indexed `public_policy_web` chunks in public policy BM25 retrieval while preserving existing `public_policy` evidence shape.
+- [x] 7.4 Add tests for crawl result -> knowledge task -> indexed chunks -> public retrieval hit.
+- [x] 7.5 Validate targeted crawler/knowledge tests, backend regression, and OpenSpec.
+
+## 8. Deferred Follow-Up Slices
 
 - Future: add Scrapyd deployment and scheduling docs only after local crawler boundary is stable.
 - Future: add real OFDRW conversion integration after licensing and runtime shape are reviewed.
