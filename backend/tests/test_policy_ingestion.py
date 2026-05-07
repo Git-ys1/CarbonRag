@@ -372,6 +372,7 @@ def test_crawled_policy_document_can_be_indexed_and_retrieved(tmp_path, monkeypa
     assert chunks[0].source_type == "public_policy"
     assert chunks[0].metadata["original_source_type"] == "public_policy_web"
     assert chunks[0].metadata["source_url"] == crawled.url
+    assert chunks[0].metadata["publication_date"] == "2026-05-01"
     assert chunks[0].metadata["clause_anchors"]
     assert chunks[0].metadata["parser_name"] == "carbonrag-html"
     assert chunks[0].metadata["metadata"]["parser_chain"] == ["carbonrag-html:success"]
