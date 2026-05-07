@@ -16,6 +16,7 @@ from app.auth.schemas import AuthenticatedUser, ResetPasswordResponse
 from app.knowledge import get_knowledge_service
 from app.knowledge.schemas import KnowledgeItemSummary, KnowledgeTaskSummary
 from app.private_samples.catalog import refresh_private_sample_catalog
+from app.rag.service import get_rag_engine_service
 from app.retrieval.mixed_retriever import get_mixed_scope_retriever
 from app.retrieval.private_retriever import get_private_sample_retriever
 
@@ -25,6 +26,7 @@ router = APIRouter(prefix="/admin")
 def _clear_private_retrieval_caches() -> None:
     get_private_sample_retriever.cache_clear()
     get_mixed_scope_retriever.cache_clear()
+    get_rag_engine_service.cache_clear()
 
 
 @router.get("/system/status", response_model=AdminSystemStatus)

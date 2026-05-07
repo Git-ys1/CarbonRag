@@ -101,3 +101,28 @@ def test_knowledge_service_marks_unsupported_doc_as_parse_failed(tmp_path, monke
     assert task is not None
     assert task.status == "failed"
     assert task.error_detail
+
+
+def test_clear_private_retrieval_caches_also_clears_rag_engine(monkeypatch) -> None:
+    cleared: list[str] = []
+
+    class FakeRagEngineFactory:
+        def __call__(self):
+            raise AssertionError("cache clear should not instantiate the RAG engine")
+
+        def cache_clear(self) -> None:
+            cleared.append("rag")
+
+    monkeypatch.setattr(
+        "app.retrieval.private_retriever.get_private_sample_retriever.cache_clear",
+        lambda: cleared.append("private"),
+    )
+    monkeypatch.setattr(
+        "app.retrieval.mixed_retriever.get_mixed_scope_retriever.cache_clear",
+        lambda: cleared.append("mixed"),
+    )
+    monkeypatch.setattr("app.rag.service.get_rag_engine_service", FakeRagEngineFactory())
+
+    KnowledgeService._clear_private_retrieval_caches()
+
+    assert cleared == ["private", "mixed", "rag"]

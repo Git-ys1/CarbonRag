@@ -425,6 +425,8 @@ class AdminService:
 
     @staticmethod
     def _clear_retrieval_caches(scope: KnowledgeRefreshScope) -> None:
+        from app.rag.service import get_rag_engine_service
+
         if scope in {"public_policy", "all"}:
             load_public_policy_documents.cache_clear()
             get_public_policy_retriever.cache_clear()
@@ -433,6 +435,7 @@ class AdminService:
             load_private_sample_documents.cache_clear()
             get_private_sample_retriever.cache_clear()
         get_mixed_scope_retriever.cache_clear()
+        get_rag_engine_service.cache_clear()
 
     @staticmethod
     def _validate_reloaded_sources(scope: KnowledgeRefreshScope) -> str:

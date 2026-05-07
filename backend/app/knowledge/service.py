@@ -591,11 +591,13 @@ class KnowledgeService:
 
     @staticmethod
     def _clear_private_retrieval_caches() -> None:
+        from app.rag.service import get_rag_engine_service
         from app.retrieval.mixed_retriever import get_mixed_scope_retriever
         from app.retrieval.private_retriever import get_private_sample_retriever
 
         get_private_sample_retriever.cache_clear()
         get_mixed_scope_retriever.cache_clear()
+        get_rag_engine_service.cache_clear()
 
 
 def _guess_mime_type(suffix: str) -> str:
