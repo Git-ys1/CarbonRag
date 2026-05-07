@@ -72,6 +72,9 @@ V1.4.7 本机完整索引结果：
 - module-level skills：`20` 个，生成到 `.claude/skills/generated/`
 - agent context：已写入 `AGENTS.md` 与 `CLAUDE.md`
 
+`.claude/skills/generated/` 是本地生成物，已加入 `.gitignore`。每个席位运行 full index 后会在本机生成自己的模块级 skills；
+不要提交这些 generated skills，否则 GitNexus 下一次索引会把它们也当成仓库内容，造成模块分组抖动。
+
 `--embeddings` 已成功生成。当前 Windows 平台提示 `VECTOR index` 不支持，语义查询使用 exact-scan fallback；这不是失败，只是性能降级。
 
 ## 常用命令
@@ -138,6 +141,7 @@ gitnexus impact <symbol>
 - `--embeddings` 需要下载 HuggingFace 模型；网络失败时设置 `HF_ENDPOINT=https://hf-mirror.com` 或使用 Clash 代理。
 - Windows 当前会使用 semantic exact-scan fallback，因为 VECTOR index 不可用。
 - GitNexus 生成的 `.gitnexus/` 与 `logs/gitnexus/` 是本地资产，不提交。
+- GitNexus 生成的 `.claude/skills/generated/` 也是本地资产，不提交；通用 `.claude/skills/gitnexus/` 可以跟随仓库。
 - 运行 `gitnexus serve` 后如果从脚本启动，注意清理子 `node.exe` 进程，避免占用 `4747` 端口。
 
 ## 一遍过排错表

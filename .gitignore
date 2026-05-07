@@ -67,6 +67,7 @@ openspec/**/.DS_Store
 # GitNexus local indexes and diagnostic logs
 .gitnexus/
 logs/gitnexus/
+.claude/skills/generated/
 
 # Local-only AI/model artifacts
 local_models/
