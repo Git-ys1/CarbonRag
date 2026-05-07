@@ -10,6 +10,7 @@ CarbonRag 是面向中小企业低碳管理场景的 AI 工作台。项目目标
 - 全体协作规则：看 [开发公告.md](开发公告.md)
 - OpenSpec + Codex 怎么开工：看 [docs/governance/OPENSPEC_CODEX_WORKFLOW_RUNBOOK.md](docs/governance/OPENSPEC_CODEX_WORKFLOW_RUNBOOK.md)
 - GitNexus + Codex MCP 怎么跑：看 [docs/governance/GITNEXUS_CODE_INTELLIGENCE_RUNBOOK.md](docs/governance/GITNEXUS_CODE_INTELLIGENCE_RUNBOOK.md)
+- Mattermost + Codex 多 Agent 协同怎么跑：看 [docs/governance/MATTERMOST_CODEX_COORDINATION_RUNBOOK.md](docs/governance/MATTERMOST_CODEX_COORDINATION_RUNBOOK.md)
 - PR 怎么审：看 [docs/governance/PR_REVIEW_RUNBOOK.md](docs/governance/PR_REVIEW_RUNBOOK.md)
 - 本地怎么跑：看 [docs/DEVELOPMENT_BOOTSTRAP.md](docs/DEVELOPMENT_BOOTSTRAP.md)
 - 云端怎么部署：看 [docs/deploy/VPS_BACKEND_DEPLOY.md](docs/deploy/VPS_BACKEND_DEPLOY.md) 和 [docs/deploy/NETLIFY_FRONTEND.md](docs/deploy/NETLIFY_FRONTEND.md)
@@ -183,6 +184,25 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/gitnexus-full-index.
 - Codex 读取 OpenSpec + GitNexus 后再改代码。
 
 `.gitnexus/` 和 `logs/gitnexus/` 是本地生成物，不提交。
+
+## Mattermost 多 Agent 协同方式
+
+V1.4.7B 起，Mattermost 被定义为施工中的实时协同总线。
+
+固定分工：
+
+- OpenSpec 管“做什么、为什么、边界”。
+- GitNexus 管“代码在哪、影响面多大”。
+- Mattermost 管“PLAN、ACK、BLOCK、LOCK、DECISION、CHANGED、REVIEW_READY”。
+- GitHub 管“PR、CI、review、merge”。
+
+试点入口计划使用：
+
+```text
+http://8.141.111.33:8065
+```
+
+当前 `8065` 端口若不可达，说明 VPS 尚未部署 Mattermost 或安全组未放行。配置和验收见 [docs/governance/MATTERMOST_CODEX_COORDINATION_RUNBOOK.md](docs/governance/MATTERMOST_CODEX_COORDINATION_RUNBOOK.md)。
 
 ## 新席位本地启动
 

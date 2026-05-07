@@ -67,6 +67,13 @@ gitnexus detect_changes
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/gitnexus-full-index.ps1 -Proxy "http://127.0.0.1:17891"
 ```
 
+V1.4.7B 起，PR 审查还要检查 Mattermost 协同记录：
+
+- PR 是否对应 `carbonrag-control` 中的 PLAN。
+- 高风险改动是否有 #1 ACK。
+- 是否有未解除的 BLOCK / LOCK。
+- PR ready 前是否发过 REVIEW_READY。
+
 后端：
 
 ```powershell
@@ -97,8 +104,9 @@ cd ..
 1. 是否有 OpenSpec change-id
 2. 是否越过模块边界
 3. 是否修改 API / DB / 权限 / 部署 / 模型调用
-4. 是否缺测试或缺文档
-5. 是否应该 approve、comment、request changes
+4. Mattermost control 中是否有 PLAN / ACK / BLOCK / REVIEW_READY
+5. 是否缺测试或缺文档
+6. 是否应该 approve、comment、request changes
 输出审查报告。
 ```
 

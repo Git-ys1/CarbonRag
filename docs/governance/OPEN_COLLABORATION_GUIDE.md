@@ -30,6 +30,8 @@
 
 - OpenSpec 是规格、变更、任务、归档和协作规则层，不是后台服务。
 - Codex 是读取 OpenSpec 后执行代码修改或辅助审查的 agent。
+- GitNexus 是代码结构、调用链和影响范围分析层。
+- Mattermost 是施工中实时协同层，用于 PLAN、ACK、BLOCK、LOCK、DECISION、CHANGED、REVIEW_READY。
 - VS Code 是本地开发与 PR 审查环境。
 - 终端是 OpenSpec、git、gh、测试命令的可信执行入口。
 
@@ -54,6 +56,16 @@ Codex 施工前必须读取：
 
 - docs-only 变更可以不建完整 change，但 PR 必须写明原因。
 - emergency hotfix 可以先修，但必须在 PR 中补说明和后续 spec 同步计划。
+
+## Mattermost 协同纪律
+
+V1.4.7B 起，非平凡改动前必须检查 `carbonrag-control`。
+
+- 普通模块内改动：发 PLAN，确认没有 active LOCK/BLOCK 后可继续。
+- API、DB、auth、deploy、model provider、carbon engine、RAG core、跨模块改动：发 PLAN 后等待 #1 ACK。
+- 阶段完成发 CHANGED。
+- 开 PR 前发 REVIEW_READY。
+- GitHub webhook 只进入 `carbonrag-log`，不替代控制频道。
 
 ## 必须提交到云端的协作资产
 
