@@ -11,6 +11,7 @@
 - `AGENTS.md`
 - `openspec/**`
 - `.codex/skills/**`
+- `.claude/skills/**`
 - `.github/CODEOWNERS`
 - `.github/PULL_REQUEST_TEMPLATE.md`
 - `.github/workflows/**`
@@ -40,6 +41,7 @@
 - `node_modules/`
 - `frontend/node_modules/`
 - `.spec-gen/`
+- `.gitnexus/`
 - `3rdparty/spec-gen/`
 - `*.sqlite`
 - `*.sqlite3`
@@ -50,6 +52,7 @@
 - `.vite/`
 - `frontend/dist/`
 - `*.log`
+- `logs/gitnexus/`
 - API key
 - 本地模型路径
 - 本地 agent session

@@ -1,66 +1,19 @@
-# CarbonRag Agent Instructions
+# CarbonRag Claude/Codex Instructions
 
 ## OpenSpec First
 
-Before implementing any non-trivial feature, read the relevant specs under `openspec/specs/**`.
+Before implementing non-trivial changes, read `AGENTS.md`, the relevant `openspec/specs/**`, and the active `openspec/changes/<change-id>/**`.
 
-Also read `docs/governance/OPEN_COLLABORATION_GUIDE.md` and the active `openspec/changes/<change-id>/**` when the task affects collaboration, review, release, or module boundaries.
+OpenSpec defines what to build and why. GitNexus provides code intelligence and impact analysis. Do not treat GitNexus as a replacement for OpenSpec or human review.
 
-Use this mapping first:
+## GitNexus First For Code Impact
 
-- M1 AI Runtime / Provider / Model Config: `openspec/specs/ai-runtime/spec.md`
-- M2 Conversation / Session / Memory: `openspec/specs/conversation-memory/spec.md`
-- M3 Frontend Chat UX / Theme / Settings: `openspec/specs/frontend-shell-settings/spec.md`
-- M4 Auth / User / Admin Governance: `openspec/specs/auth-governance/spec.md`
-- M5 Knowledge / File / RAG: `openspec/specs/knowledge-rag/spec.md`
-- M6 Carbon / Report / Feedback: `openspec/specs/carbon-report-feedback/spec.md`
-- M7 DevOps / CI / Release: `openspec/specs/devops-release/spec.md`
-- M8 Spec / Governance / Project Docs: `openspec/specs/governance/spec.md`
+Before modifying backend, frontend, carbon, RAG, session, report, auth, deployment, or cross-module code:
 
-## Change Discipline
-
-- Do not start a new feature without an OpenSpec change id unless the task is explicitly docs-only or an emergency hotfix.
-- When the user provides a non-trivial task book without a change id, Codex must derive a kebab-case change id, create or inspect `openspec/changes/<change-id>/`, and run the propose stage before implementation.
-- The human does not need to manually run OpenSpec for every round. Codex owns the OpenSpec housekeeping in normal development: inspect specs, create change scaffolding, draft proposal/design/tasks/delta specs, validate, then wait for review before apply unless the user explicitly authorizes fast-track execution.
-- PRs must state the OpenSpec change id, affected specs, affected modules, risks, verification, and approval state.
-- `Git-ys1` is the final `main` reviewer and CODEOWNERS fallback owner.
-- This repository is already initialized for OpenSpec. Do not run `openspec init` in this repo unless #1 explicitly requests a full re-initialization.
-- `openspec update .` may be used to refresh instructions. If it asks to remove `openspec/AGENTS.md` or instruction files, default to preserving them until #1 confirms migration.
-- Codex may operate Git for setup, branching, commits, pushes, and merges only within the active task goal and repository workflow. State-changing Git operations must have a clear reason and must not be destructive unless explicitly requested.
-
-## Local Artifacts
-
-Never commit:
-
-- `.spec-gen/`
-- `3rdparty/spec-gen/`
-- local model paths
-- API keys or credentials
-- local agent session records
-- runtime outputs under `data/outputs/`
-
-Local-only ignored files are not missing source. Recreate them from templates, scripts, dependency installs, or local runtime commands.
-
-## Worktree Safety
-
-- Do not revert user changes unless explicitly asked.
-- Keep generated drafts separate from manually reviewed specs.
-- Treat `openspec/specs/**` as the current behavior source of truth and `openspec/changes/**` as proposed change work.
-
-## GitNexus Code Intelligence Rule
-
-Before modifying non-trivial backend, frontend, carbon, RAG, session, report, auth, deployment, or cross-module code, Codex must use GitNexus context first.
-
-Required sequence:
-
-1. Read the relevant OpenSpec change files and specs.
-2. Run or verify `openspec validate --all`.
-3. Verify GitNexus index status with `gitnexus status`.
-4. Use GitNexus MCP or CLI to inspect affected modules.
-5. For risky edits, run `gitnexus impact <symbol>` or `gitnexus detect_changes` before implementation.
-6. After implementation, run tests and use GitNexus for post-change impact review.
-
-Do not blindly edit files only from grep results when GitNexus is available. If GitNexus is unavailable, record the reason in the task notes and fall back to normal repo exploration.
+1. Verify `openspec validate --all`.
+2. Verify `gitnexus status`.
+3. Use GitNexus context/query/impact/detect_changes before changing code.
+4. Report high-risk blast radius before implementation.
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

@@ -38,6 +38,8 @@ coverage/
 
 # Logs
 *.log
+!logs/
+!logs/.gitkeep
 
 # Runtime outputs
 data/outputs/*
@@ -61,6 +63,10 @@ runtime/
 openspec/**/*.log
 openspec/**/*.tmp
 openspec/**/.DS_Store
+
+# GitNexus local indexes and diagnostic logs
+.gitnexus/
+logs/gitnexus/
 
 # Local-only AI/model artifacts
 local_models/

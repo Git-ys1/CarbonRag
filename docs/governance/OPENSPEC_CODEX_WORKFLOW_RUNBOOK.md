@@ -168,6 +168,22 @@ openspec list
 openspec validate --all
 ```
 
+从 V1.4.7 起，复杂代码改动还要检查 GitNexus：
+
+```powershell
+gitnexus status
+gitnexus query <topic>
+gitnexus impact <symbol>
+```
+
+如果本机尚未索引：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/gitnexus-full-index.ps1 -Proxy "http://127.0.0.1:17891"
+```
+
+OpenSpec 负责变更边界；GitNexus 负责代码结构和影响范围。
+
 如果任务需要同步远端，Codex 可以执行只读：
 
 ```powershell
