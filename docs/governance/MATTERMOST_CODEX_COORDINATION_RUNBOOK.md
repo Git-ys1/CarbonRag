@@ -4,9 +4,52 @@
 
 ## 当前状态
 
-V1.4.7B 仓库侧协议、skill、脚本和文档已落地。公网探测 `http://8.141.111.33:8065` 当前超时，说明 VPS 上 Mattermost 还未部署、未启动，或阿里云安全组/防火墙未放行 `8065`。
+V1.4.7B 仓库侧协议、skill、脚本和文档已落地。Mattermost 试点服务已部署在：
 
-本轮真实联调需要 #1 提供 VPS SSH/sudo 权限，或由 #1 在服务器上执行部署命令。
+```text
+http://8.141.111.33:8065
+```
+
+当前已验证：
+
+- 公网访问 `http://8.141.111.33:8065` 返回 `200 OK`。
+- VPS 本机访问 Mattermost 返回 `200 OK`。
+- `carbonrag` team 已存在。
+- `carbonrag-control`、`carbonrag-review`、`carbonrag-log` 三个频道已存在。
+- `t1-codex` / `t2-codex` PAT 可通过 Mattermost REST API 读取账号信息。
+- `carbonrag-control` 已跑通过一次 `PLAN -> ACK -> CHANGED -> REVIEW_READY` 测试消息。
+- standalone Mattermost MCP 已跑通 `tools/list`、`read_channel`、`create_post`。
+- 内置 Mattermost AI HTTP MCP 端点 `/plugins/mattermost-ai/mcp-server/mcp` 当前返回 `404`，因此 HTTP MCP 暂缓，当前正式试点口径为 standalone MCP。
+
+注意：PAT 和账号密码只能保存在本地或服务器 root-only 文件中，不得提交仓库。若凭据曾出现在聊天、截图或公共文档中，应立即轮换。
+
+## 可视化查看方式
+
+Mattermost 本身就是可视化协同界面，不需要 CarbonRag 额外再做一个容器来“看发帖”。
+
+推荐查看方式：
+
+1. 在浏览器打开 `http://8.141.111.33:8065`。
+2. 使用 `t1-director` 或对应人类账号登录。
+3. 进入 `carbonrag` team。
+4. 查看三个频道：
+   - `carbonrag-control`：施工计划、ACK、BLOCK、CHANGED、REVIEW_READY。
+   - `carbonrag-review`：早期 review 和 PR 讨论。
+   - `carbonrag-log`：自动日志、CI、GitHub webhook、GitNexus 摘要。
+
+频道纪律：
+
+- `carbonrag-control` 不做普通聊天，不做长讨论，只放结构化控制消息。
+- 人类闲聊、技术讨论、PR 讨论放 `carbonrag-review` 或私聊。
+- 自动日志、CI、GitHub webhook、GitNexus 摘要放 `carbonrag-log`。
+- 这样做是为了让 Codex 能可靠搜索 `ACK`、`BLOCK`、`DECISION`，避免控制消息被闲聊淹没。
+
+VS Code 中可选两种方式：
+
+- 使用 VS Code 内置 Simple Browser 或浏览器预览扩展打开 `http://8.141.111.33:8065`，相当于把 Mattermost 网页嵌进 VS Code。
+- 继续让 Codex / 脚本通过 REST 或 MCP 读写频道；这属于机器接口，不提供可视化聊天窗口。
+
+结论：人类看状态用 Mattermost Web UI；Codex 自动协作用 REST/MCP；暂时不需要为 CarbonRag 自己开发一套发帖可视化容器。
 
 ## VPS 部署建议
 
@@ -59,6 +102,64 @@ t2-codex
 
 ## Codex MCP 配置
 
+### 当前 #1 本机状态
+
+#1 本机已完成 standalone MCP 配置：
+
+```text
+C:\Users\yusu\.codex\mcp\bin\mattermost-mcp-server.exe
+C:\Users\yusu\.codex\mcp\mattermost-mcp.ps1
+```
+
+Codex 本机配置 `C:\Users\yusu\.codex\config.toml` 中已存在：
+
+```toml
+[mcp_servers.mattermost]
+command = "powershell"
+args = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "C:\\Users\\yusu\\.codex\\mcp\\mattermost-mcp.ps1"]
+```
+
+`codex mcp list` 应能看到：
+
+```text
+mattermost  powershell  ... mattermost-mcp.ps1  enabled
+```
+
+当前 smoke 结果：
+
+```text
+tool_count: 15
+read_channel: ok
+create_post: ok
+```
+
+真实 PAT 不写入 `config.toml`。启动 Codex 前必须在本机用户环境变量中设置：
+
+| 使用者 | 应使用的 Mattermost 账号 | `MATTERMOST_TOKEN` 填写来源 |
+| --- | --- | --- |
+| #1 本机 Codex | `t1-codex` | #1 凭据清单中 `[tokens_raw] t1-codex` 对应的 PAT |
+| #2 本机 Codex | `t2-codex` | #2 凭据清单中 `[tokens_raw] t2-codex` 对应的 PAT |
+| #3 本机 Codex | `t3-codex` | 后续由 #1 创建并单独发放 |
+
+PowerShell 设置命令：
+
+```powershell
+[Environment]::SetEnvironmentVariable("MATTERMOST_TOKEN", "<把对应 codex 账号的 PAT 粘贴在这里>", "User")
+```
+
+设置后重启 VS Code / Codex，使新环境变量生效。不要把 PAT 写入 `config.toml`、`.env`、截图、PR、开发日志或公告。
+
+临时验证当前 PowerShell 会话可以这样写：
+
+```powershell
+$env:MATTERMOST_TOKEN="<把对应 codex 账号的 PAT 粘贴在这里>"
+codex mcp list
+```
+
+如果只是当前窗口临时设置，关闭 PowerShell 后会失效；如果用 `[Environment]::SetEnvironmentVariable(..., "User")`，需要重启 VS Code / Codex 才会生效。
+
+### HTTP MCP 配置草案
+
 仓库示例：
 
 ```text
@@ -87,16 +188,18 @@ $env:MATTERMOST_CHANNEL="carbonrag-control"
 codex mcp list
 ```
 
+注意：当前 Mattermost 内置 HTTP MCP 端点仍返回 `404`，因此上面的 HTTP 配置只作为后续升级目标。现阶段优先使用 #1 本机已配置的 standalone MCP。
+
 ## Standalone MCP fallback
 
-如果 Mattermost Agents 插件 HTTP MCP 不可用，不放弃 Mattermost。改用官方 standalone MCP server，环境变量仍为：
+如果 Mattermost Agents 插件 HTTP MCP 不可用，不放弃 Mattermost。改用官方 standalone MCP server，环境变量为：
 
 ```powershell
 $env:MM_SERVER_URL="http://8.141.111.33:8065"
 $env:MM_ACCESS_TOKEN=$env:MATTERMOST_TOKEN
 ```
 
-然后把 Codex MCP server 配成 stdio 方式。具体命令以当时安装的 Mattermost MCP Server 包说明为准，并记录到本文件。
+#1 本机实际采用 wrapper 方式，由 `mattermost-mcp.ps1` 自动设置 `MM_SERVER_URL` 和 `MM_ACCESS_TOKEN` 后启动 `mattermost-mcp-server.exe`。
 
 ## REST fallback
 
@@ -125,4 +228,3 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/coordination/post-ma
 - Codex MCP 能读频道、搜索 ACK/BLOCK、创建 PLAN。
 - 完成一次 PLAN -> ACK -> CHANGED -> REVIEW_READY。
 - 完成一次 BLOCK 后 Codex 停止施工。
-
