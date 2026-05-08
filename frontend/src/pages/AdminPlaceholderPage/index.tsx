@@ -22,12 +22,19 @@ import { useEffect, useMemo, useState } from "react";
 import {
     getAdminFeedbackOverview,
     getAdminSystemStatus,
+    getPolicyCrawlerStatus,
     getPolicyShowcaseRetrievalPreview,
     getPolicyShowcaseStatus,
     listAdminUsers,
+    listPolicyCrawlerCandidates,
+    listPolicyCrawlerRuns,
+    listPolicyCrawlerSources,
     listPolicyShowcaseChunks,
     listPolicyShowcaseSources,
+    publishPolicyCrawlerCandidate,
+    rejectPolicyCrawlerCandidate,
     resetAdminUserPassword,
+    runPolicyCrawlerSource,
     runPolicyShowcaseSource,
     updateAdminUser,
 } from "../../services/admin";
@@ -43,6 +50,10 @@ import type {
     AdminFeedbackOverview,
     AdminSystemStatus,
     AdminUserSummary,
+    PolicyCrawlerCandidateSummary,
+    PolicyCrawlerRunSummary,
+    PolicyCrawlerSourceSummary,
+    PolicyCrawlerStatusSummary,
     PolicyShowcaseSourceSummary,
     PolicyShowcaseStatus,
 } from "../../types/admin";
@@ -60,11 +71,17 @@ export function AdminPlaceholderPage() {
     const [knowledgeTasks, setKnowledgeTasks] = useState<KnowledgeTask[]>([]);
     const [policySources, setPolicySources] = useState<PolicyShowcaseSourceSummary[]>([]);
     const [policyShowcaseStatus, setPolicyShowcaseStatus] = useState<PolicyShowcaseStatus | null>(null);
+    const [policyCrawlerStatus, setPolicyCrawlerStatus] = useState<PolicyCrawlerStatusSummary | null>(null);
+    const [policyCrawlerSources, setPolicyCrawlerSources] = useState<PolicyCrawlerSourceSummary[]>([]);
+    const [policyCrawlerRuns, setPolicyCrawlerRuns] = useState<PolicyCrawlerRunSummary[]>([]);
+    const [policyCrawlerCandidates, setPolicyCrawlerCandidates] = useState<PolicyCrawlerCandidateSummary[]>([]);
     const [userSavingId, setUserSavingId] = useState<string | null>(null);
     const [knowledgeItemSavingId, setKnowledgeItemSavingId] = useState<string | null>(null);
     const [refreshingKnowledge, setRefreshingKnowledge] = useState<KnowledgeTaskRefreshAction>(null);
     const [runningPolicySourceId, setRunningPolicySourceId] = useState<string | null>(null);
     const [loadingPolicySourceId, setLoadingPolicySourceId] = useState<string | null>(null);
+    const [runningCrawlerSourceId, setRunningCrawlerSourceId] = useState<string | null>(null);
+    const [reviewingCandidateId, setReviewingCandidateId] = useState<string | null>(null);
     const [selectedTask, setSelectedTask] = useState<KnowledgeTask | null>(null);
 
     const userColumns = useMemo<ColumnsType<AdminUserSummary>>(
@@ -330,17 +347,45 @@ export function AdminPlaceholderPage() {
         };
     }
 
+    async function fetchPolicyCrawlerWorkspace() {
+        const [status, sources, runs, candidates] = await Promise.all([
+            getPolicyCrawlerStatus(),
+            listPolicyCrawlerSources(),
+            listPolicyCrawlerRuns(undefined, 10),
+            listPolicyCrawlerCandidates(undefined, undefined, 20),
+        ]);
+        setPolicyCrawlerStatus(status);
+        setPolicyCrawlerSources(sources);
+        setPolicyCrawlerRuns(runs);
+        setPolicyCrawlerCandidates(candidates);
+    }
+
     async function loadAdminWorkspace() {
         setLoading(true);
         setErrorMessage(null);
         try {
-            const [nextUsers, nextFeedback, nextKnowledgeItems, nextTasks, nextStatus, nextPolicySources] = await Promise.all([
+            const [
+                nextUsers,
+                nextFeedback,
+                nextKnowledgeItems,
+                nextTasks,
+                nextStatus,
+                nextPolicySources,
+                nextCrawlerStatus,
+                nextCrawlerSources,
+                nextCrawlerRuns,
+                nextCrawlerCandidates,
+            ] = await Promise.all([
                 listAdminUsers(),
                 getAdminFeedbackOverview(),
                 listAdminKnowledgeItems(),
                 listAdminKnowledgeTasks(),
                 getAdminSystemStatus(),
                 listPolicyShowcaseSources(),
+                getPolicyCrawlerStatus(),
+                listPolicyCrawlerSources(),
+                listPolicyCrawlerRuns(undefined, 10),
+                listPolicyCrawlerCandidates(undefined, undefined, 20),
             ]);
             setUsers(nextUsers);
             setFeedbackOverview(nextFeedback);
@@ -348,6 +393,10 @@ export function AdminPlaceholderPage() {
             setKnowledgeTasks(nextTasks);
             setSystemStatus(nextStatus);
             setPolicySources(nextPolicySources);
+            setPolicyCrawlerStatus(nextCrawlerStatus);
+            setPolicyCrawlerSources(nextCrawlerSources);
+            setPolicyCrawlerRuns(nextCrawlerRuns);
+            setPolicyCrawlerCandidates(nextCrawlerCandidates);
             if (nextPolicySources[0]) {
                 setPolicyShowcaseStatus(await fetchPolicyShowcase(nextPolicySources[0].source_id));
             } else {
@@ -480,6 +529,55 @@ export function AdminPlaceholderPage() {
         } finally {
             setRunningPolicySourceId(null);
         }
+    }
+
+    async function handleRunPolicyCrawler(sourceId: string) {
+        setRunningCrawlerSourceId(sourceId);
+        setErrorMessage(null);
+        try {
+            await runPolicyCrawlerSource(sourceId);
+            message.success("实时政策爬虫运行已记录，抓取结果会先进入待审核候选区。");
+            await fetchPolicyCrawlerWorkspace();
+        } catch (error) {
+            setErrorMessage(extractDetailMessage(error) ?? "运行实时政策爬虫失败。");
+        } finally {
+            setRunningCrawlerSourceId(null);
+        }
+    }
+
+    async function handlePublishPolicyCandidate(candidateId: string) {
+        setReviewingCandidateId(candidateId);
+        setErrorMessage(null);
+        try {
+            await publishPolicyCrawlerCandidate(candidateId);
+            message.success("候选政策已发布，已进入 crawl_ingest 队列。");
+            await Promise.all([fetchPolicyCrawlerWorkspace(), loadKnowledgeWorkspace()]);
+        } catch (error) {
+            setErrorMessage(extractDetailMessage(error) ?? "发布候选政策失败。");
+        } finally {
+            setReviewingCandidateId(null);
+        }
+    }
+
+    async function handleRejectPolicyCandidate(candidateId: string) {
+        setReviewingCandidateId(candidateId);
+        setErrorMessage(null);
+        try {
+            await rejectPolicyCrawlerCandidate(candidateId);
+            message.success("候选政策已拒绝，不会进入检索。");
+            await fetchPolicyCrawlerWorkspace();
+        } catch (error) {
+            setErrorMessage(extractDetailMessage(error) ?? "拒绝候选政策失败。");
+        } finally {
+            setReviewingCandidateId(null);
+        }
+    }
+
+    async function loadKnowledgeWorkspace() {
+        const [nextKnowledgeItems, nextTasks] = await Promise.all([listAdminKnowledgeItems(), listAdminKnowledgeTasks()]);
+        setKnowledgeItems(nextKnowledgeItems);
+        setKnowledgeTasks(nextTasks);
+        await refreshSystemStatus();
     }
 
     async function refreshUsers() {
@@ -752,6 +850,179 @@ export function AdminPlaceholderPage() {
                     </Card>
 
                     <Card
+                        className="admin-grid__table-card admin-grid__wide-card"
+                        title="实时政策爬虫"
+                        extra={
+                            <Space size={8} wrap>
+                                <Tag color={policyCrawlerStatus?.provider_available ? "green" : "orange"}>
+                                    {policyCrawlerStatus?.provider_available ? "Scrapy 可用" : "Scrapy 不可用"}
+                                </Tag>
+                                <Tag color={policyCrawlerStatus?.scheduled_enabled ? "blue" : "default"}>
+                                    {policyCrawlerStatus?.scheduled_enabled ? "定时已显式启用" : "默认手动触发"}
+                                </Tag>
+                            </Space>
+                        }
+                    >
+                        <Space direction="vertical" size={12} style={{ width: "100%" }}>
+                            <Alert
+                                showIcon
+                                type="warning"
+                                message="自动抓取不等于正式政策发布"
+                                description="公网政策爬虫默认不自动定时运行。管理员手动抓取后，结果只进入 pending_review 候选区；发布前不会进入 public_policy_web，也不会影响 /ask 默认检索。"
+                            />
+                            {policyCrawlerStatus ? (
+                                <Descriptions column={2} size="small" bordered>
+                                    <Descriptions.Item label="Provider">
+                                        {policyCrawlerStatus.provider_name} / {policyCrawlerStatus.provider_mode}
+                                    </Descriptions.Item>
+                                    <Descriptions.Item label="Provider 状态">
+                                        <Space size={8} wrap>
+                                            <Tag color={policyCrawlerStatus.provider_enabled ? "green" : "default"}>
+                                                {policyCrawlerStatus.provider_enabled ? "已启用" : "未启用"}
+                                            </Tag>
+                                            <Tag color={policyCrawlerStatus.provider_available ? "green" : "orange"}>
+                                                {policyCrawlerStatus.provider_available ? "可用" : "不可用"}
+                                            </Tag>
+                                        </Space>
+                                    </Descriptions.Item>
+                                    <Descriptions.Item label="待审核候选">
+                                        {policyCrawlerStatus.pending_candidate_count}
+                                    </Descriptions.Item>
+                                    <Descriptions.Item label="最近运行">
+                                        {policyCrawlerStatus.recent_run_status
+                                            ? crawlerRunStatusLabelMap[policyCrawlerStatus.recent_run_status] ??
+                                              policyCrawlerStatus.recent_run_status
+                                            : "暂无"}
+                                    </Descriptions.Item>
+                                    <Descriptions.Item label="安全限制" span={2}>
+                                        robots={String(policyCrawlerStatus.safe_limits.obey_robots ?? true)}, depth=
+                                        {formatMetadataValue(policyCrawlerStatus.safe_limits.max_depth)}, pages=
+                                        {formatMetadataValue(policyCrawlerStatus.safe_limits.max_pages)}, delay=
+                                        {formatMetadataValue(policyCrawlerStatus.safe_limits.download_delay_seconds)}s,
+                                        concurrency=
+                                        {formatMetadataValue(policyCrawlerStatus.safe_limits.concurrent_requests_per_domain)}
+                                    </Descriptions.Item>
+                                </Descriptions>
+                            ) : (
+                                <Typography.Text type="secondary">暂无爬虫状态。</Typography.Text>
+                            )}
+
+                            <List
+                                size="small"
+                                header={<Typography.Text strong>官方白名单源</Typography.Text>}
+                                dataSource={policyCrawlerSources}
+                                locale={{ emptyText: "暂无政策爬虫源。" }}
+                                renderItem={(source) => (
+                                    <List.Item
+                                        actions={[
+                                            <Button
+                                                key="run"
+                                                size="small"
+                                                type="primary"
+                                                disabled={!policyCrawlerStatus?.manual_enabled || Boolean(policyCrawlerStatus?.running)}
+                                                loading={runningCrawlerSourceId === source.source_id}
+                                                onClick={() => void handleRunPolicyCrawler(source.source_id)}
+                                            >
+                                                手动抓取
+                                            </Button>,
+                                        ]}
+                                    >
+                                        <Space direction="vertical" size={4} style={{ width: "100%" }}>
+                                            <Space size={8} wrap>
+                                                <Typography.Text strong>{source.title}</Typography.Text>
+                                                <Tag>{source.source_label}</Tag>
+                                                <Tag color={source.is_enabled ? "green" : "default"}>
+                                                    {source.is_enabled ? "启用" : "停用"}
+                                                </Tag>
+                                                {source.last_run_status ? (
+                                                    <Tag color={crawlerRunStatusColorMap[source.last_run_status] ?? "default"}>
+                                                        {crawlerRunStatusLabelMap[source.last_run_status] ?? source.last_run_status}
+                                                    </Tag>
+                                                ) : null}
+                                            </Space>
+                                            <Typography.Text type="secondary">{source.source_url}</Typography.Text>
+                                            {source.last_error ? <Typography.Text type="danger">{source.last_error}</Typography.Text> : null}
+                                        </Space>
+                                    </List.Item>
+                                )}
+                            />
+
+                            <List
+                                size="small"
+                                header={<Typography.Text strong>待审核/已处理候选</Typography.Text>}
+                                dataSource={policyCrawlerCandidates.slice(0, 8)}
+                                locale={{ emptyText: "暂无候选。手动抓取成功后会先出现在这里。" }}
+                                renderItem={(candidate) => (
+                                    <List.Item
+                                        actions={
+                                            candidate.status === "pending_review"
+                                                ? [
+                                                      <Button
+                                                          key="publish"
+                                                          size="small"
+                                                          type="primary"
+                                                          loading={reviewingCandidateId === candidate.candidate_id}
+                                                          onClick={() => void handlePublishPolicyCandidate(candidate.candidate_id)}
+                                                      >
+                                                          发布
+                                                      </Button>,
+                                                      <Button
+                                                          key="reject"
+                                                          size="small"
+                                                          danger
+                                                          loading={reviewingCandidateId === candidate.candidate_id}
+                                                          onClick={() => void handleRejectPolicyCandidate(candidate.candidate_id)}
+                                                      >
+                                                          拒绝
+                                                      </Button>,
+                                                  ]
+                                                : []
+                                        }
+                                    >
+                                        <Space direction="vertical" size={4} style={{ width: "100%" }}>
+                                            <Space size={8} wrap>
+                                                <Typography.Text strong>{candidate.title ?? candidate.url}</Typography.Text>
+                                                <Tag color={candidateStatusColorMap[candidate.status]}>
+                                                    {candidateStatusLabelMap[candidate.status] ?? candidate.status}
+                                                </Tag>
+                                                <Tag>{candidate.content_type}</Tag>
+                                            </Space>
+                                            <Typography.Text type="secondary">{candidate.url}</Typography.Text>
+                                            <Typography.Text type="secondary">
+                                                hash {candidate.content_hash.slice(0, 12)} / {formatTimestamp(candidate.updated_at)}
+                                            </Typography.Text>
+                                        </Space>
+                                    </List.Item>
+                                )}
+                            />
+
+                            <List
+                                size="small"
+                                header={<Typography.Text strong>最近运行记录</Typography.Text>}
+                                dataSource={policyCrawlerRuns.slice(0, 5)}
+                                locale={{ emptyText: "暂无运行记录。" }}
+                                renderItem={(run) => (
+                                    <List.Item>
+                                        <Space direction="vertical" size={4} style={{ width: "100%" }}>
+                                            <Space size={8} wrap>
+                                                <Typography.Text code>{run.run_id}</Typography.Text>
+                                                <Tag color={crawlerRunStatusColorMap[run.status] ?? "default"}>
+                                                    {crawlerRunStatusLabelMap[run.status] ?? run.status}
+                                                </Tag>
+                                                <Tag>{run.trigger_type}</Tag>
+                                                <Tag>{run.candidate_count} 候选</Tag>
+                                            </Space>
+                                            <Typography.Text type={run.error_detail ? "danger" : "secondary"}>
+                                                {run.error_detail ?? `${formatTimestamp(run.started_at)} / ${run.provider_name ?? "unknown"}`}
+                                            </Typography.Text>
+                                        </Space>
+                                    </List.Item>
+                                )}
+                            />
+                        </Space>
+                    </Card>
+
+                    <Card
                         className="admin-grid__table-card"
                         title="知识条目 / 文档列表"
                         extra={
@@ -930,6 +1201,38 @@ const taskStatusColorMap: Record<string, string> = {
     completed: "green",
     skipped: "default",
     failed: "red",
+};
+
+const crawlerRunStatusLabelMap: Record<string, string> = {
+    running: "运行中",
+    succeeded: "已完成",
+    failed: "失败",
+    disabled: "已禁用",
+    unavailable: "不可用",
+    rejected: "已拒绝",
+    skipped: "已跳过",
+};
+
+const crawlerRunStatusColorMap: Record<string, string> = {
+    running: "processing",
+    succeeded: "green",
+    failed: "red",
+    disabled: "default",
+    unavailable: "orange",
+    rejected: "red",
+    skipped: "default",
+};
+
+const candidateStatusLabelMap: Record<string, string> = {
+    pending_review: "待审核",
+    published: "已发布",
+    rejected: "已拒绝",
+};
+
+const candidateStatusColorMap: Record<string, string> = {
+    pending_review: "orange",
+    published: "green",
+    rejected: "red",
 };
 
 const taskScopeLabelMap: Record<string, string> = {

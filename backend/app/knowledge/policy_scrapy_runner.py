@@ -43,6 +43,7 @@ def _crawl(request: dict[str, Any]) -> list[dict[str, Any]]:
             "CONCURRENT_REQUESTS_PER_DOMAIN": int(request.get("concurrent_requests_per_domain") or 2),
             "DEPTH_LIMIT": int(request.get("max_depth") or 0),
             "CLOSESPIDER_PAGECOUNT": max_pages,
+            "USER_AGENT": request.get("user_agent") or "CarbonRagPolicyCrawler/1.0 (+admin-reviewed)",
             "REQUEST_FINGERPRINTER_IMPLEMENTATION": "2.7",
         }
 

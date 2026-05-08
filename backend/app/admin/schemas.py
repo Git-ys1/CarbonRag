@@ -8,6 +8,7 @@ from app.knowledge.schemas import KnowledgeItemSummary, KnowledgeTaskSummary
 
 KnowledgeRefreshScope = Literal["public_policy", "private_sample", "all"]
 KnowledgeRefreshStatus = Literal["queued", "running", "succeeded", "failed"]
+PolicyCrawlerCandidateStatus = Literal["pending_review", "published", "rejected"]
 
 
 class AdminUserSummary(BaseModel):
@@ -139,6 +140,74 @@ class PolicyShowcaseStatus(BaseModel):
     chunks: list[PolicyShowcaseChunkSummary] = Field(default_factory=list)
     retrieval_preview: PolicyShowcaseRetrievalPreview | None = None
     indexed: bool = False
+
+
+class PolicyCrawlerSourceSummary(BaseModel):
+    source_id: str
+    title: str
+    source_url: str
+    source_label: str
+    allowed_domain: str
+    is_enabled: bool
+    schedule_interval_seconds: int | None = None
+    last_run_id: str | None = None
+    last_run_status: str | None = None
+    last_run_at: datetime | None = None
+    next_run_at: datetime | None = None
+    last_error: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PolicyCrawlerRunSummary(BaseModel):
+    run_id: str
+    source_id: str
+    trigger_type: str
+    triggered_by_user_id: str | None = None
+    status: str
+    provider_name: str | None = None
+    started_at: datetime
+    finished_at: datetime | None = None
+    document_count: int = 0
+    candidate_count: int = 0
+    error_detail: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PolicyCrawlerCandidateSummary(BaseModel):
+    candidate_id: str
+    run_id: str
+    source_id: str
+    url: str
+    title: str | None = None
+    content_type: str
+    content_hash: str
+    source_name: str | None = None
+    fetched_at: datetime | None = None
+    status: PolicyCrawlerCandidateStatus
+    reviewed_by_user_id: str | None = None
+    reviewed_at: datetime | None = None
+    review_note: str | None = None
+    knowledge_item_id: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PolicyCrawlerStatusSummary(BaseModel):
+    scheduler_started: bool
+    scheduled_enabled: bool
+    manual_enabled: bool
+    running: bool
+    provider_name: str
+    provider_mode: str
+    provider_enabled: bool
+    provider_available: bool
+    interval_seconds: int
+    initial_delay_seconds: float
+    source_count: int = 0
+    pending_candidate_count: int = 0
+    recent_run_status: str | None = None
+    safe_limits: dict[str, Any] = Field(default_factory=dict)
 
 
 class UpdateAdminPrivateSampleRequest(BaseModel):

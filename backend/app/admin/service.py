@@ -13,6 +13,11 @@ from app.admin.schemas import (
     KnowledgeRefreshTask,
     KnowledgeRefreshStatus,
     KnowledgeRefreshScope,
+    PolicyCrawlerCandidateStatus,
+    PolicyCrawlerCandidateSummary,
+    PolicyCrawlerRunSummary,
+    PolicyCrawlerSourceSummary,
+    PolicyCrawlerStatusSummary,
     PolicyShowcaseChunkSummary,
     PolicyShowcaseRetrievalHit,
     PolicyShowcaseRetrievalPreview,
@@ -31,6 +36,7 @@ from app.knowledge.policy_showcase import (
     get_showcase_policy_source,
     list_showcase_policy_sources,
 )
+from app.knowledge.policy_live_crawler import get_policy_crawler_scheduler
 from app.private_samples.catalog import (
     list_admin_private_sample_catalog,
     refresh_private_sample_catalog,
@@ -312,6 +318,82 @@ class AdminService:
             total_hits=result.total_hits,
             hits=hits,
         )
+
+    def get_policy_crawler_status(self) -> PolicyCrawlerStatusSummary:
+        scheduler = get_policy_crawler_scheduler()
+        return PolicyCrawlerStatusSummary.model_validate(scheduler.status().model_dump(mode="python"))
+
+    def list_policy_crawler_sources(self) -> list[PolicyCrawlerSourceSummary]:
+        scheduler = get_policy_crawler_scheduler()
+        return [
+            PolicyCrawlerSourceSummary.model_validate(source.model_dump(mode="python"))
+            for source in scheduler.list_sources()
+        ]
+
+    def run_policy_crawler_source(
+        self,
+        *,
+        source_id: str,
+        requested_by_user_id: str | None,
+    ) -> PolicyCrawlerRunSummary:
+        scheduler = get_policy_crawler_scheduler()
+        run = scheduler.run_source_now(
+            source_id=source_id,
+            triggered_by_user_id=requested_by_user_id,
+        )
+        return PolicyCrawlerRunSummary.model_validate(run.model_dump(mode="python"))
+
+    def list_policy_crawler_runs(
+        self,
+        *,
+        source_id: str | None = None,
+        limit: int = 20,
+    ) -> list[PolicyCrawlerRunSummary]:
+        scheduler = get_policy_crawler_scheduler()
+        return [
+            PolicyCrawlerRunSummary.model_validate(run.model_dump(mode="python"))
+            for run in scheduler.list_runs(source_id=source_id, limit=limit)
+        ]
+
+    def list_policy_crawler_candidates(
+        self,
+        *,
+        status: PolicyCrawlerCandidateStatus | None = None,
+        source_id: str | None = None,
+        limit: int = 50,
+    ) -> list[PolicyCrawlerCandidateSummary]:
+        scheduler = get_policy_crawler_scheduler()
+        return [
+            PolicyCrawlerCandidateSummary.model_validate(candidate.model_dump(mode="python"))
+            for candidate in scheduler.list_candidates(status=status, source_id=source_id, limit=limit)
+        ]
+
+    def publish_policy_crawler_candidate(
+        self,
+        *,
+        candidate_id: str,
+        reviewed_by_user_id: str | None,
+    ) -> PolicyCrawlerCandidateSummary:
+        scheduler = get_policy_crawler_scheduler()
+        candidate = scheduler.publish_candidate(
+            candidate_id=candidate_id,
+            reviewed_by_user_id=reviewed_by_user_id,
+        )
+        self._clear_retrieval_caches("public_policy")
+        return PolicyCrawlerCandidateSummary.model_validate(candidate.model_dump(mode="python"))
+
+    def reject_policy_crawler_candidate(
+        self,
+        *,
+        candidate_id: str,
+        reviewed_by_user_id: str | None,
+    ) -> PolicyCrawlerCandidateSummary:
+        scheduler = get_policy_crawler_scheduler()
+        candidate = scheduler.reject_candidate(
+            candidate_id=candidate_id,
+            reviewed_by_user_id=reviewed_by_user_id,
+        )
+        return PolicyCrawlerCandidateSummary.model_validate(candidate.model_dump(mode="python"))
 
     def update_private_sample(self, *, doc_id: str, is_enabled: bool, session_attachable: bool, updated_by_user_id: str):
         knowledge_service = get_knowledge_service()

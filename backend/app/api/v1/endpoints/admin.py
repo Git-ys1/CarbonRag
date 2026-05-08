@@ -8,6 +8,11 @@ from app.admin.schemas import (
     AdminSystemStatus,
     AdminUserSummary,
     KnowledgeRefreshTask,
+    PolicyCrawlerCandidateStatus,
+    PolicyCrawlerCandidateSummary,
+    PolicyCrawlerRunSummary,
+    PolicyCrawlerSourceSummary,
+    PolicyCrawlerStatusSummary,
     PolicyShowcaseChunkSummary,
     PolicyShowcaseRetrievalPreview,
     PolicyShowcaseSourceSummary,
@@ -20,6 +25,7 @@ from app.admin.service import get_admin_service
 from app.auth.dependencies import require_admin
 from app.auth.schemas import AuthenticatedUser, ResetPasswordResponse
 from app.knowledge import get_knowledge_service
+from app.knowledge.policy_live_crawler import PolicyCrawlerBusyError
 from app.knowledge.schemas import KnowledgeItemSummary, KnowledgeTaskSummary
 from app.private_samples.catalog import refresh_private_sample_catalog
 from app.rag.service import get_rag_engine_service
@@ -160,6 +166,100 @@ def get_admin_policy_source_retrieval_preview(
         )
     except KeyError:
         raise HTTPException(status_code=404, detail="Policy source not found.")
+
+
+@router.get("/policy-crawler/status", response_model=PolicyCrawlerStatusSummary)
+def get_admin_policy_crawler_status(
+    current_user: AuthenticatedUser = Depends(require_admin),
+) -> PolicyCrawlerStatusSummary:
+    del current_user
+    return get_admin_service().get_policy_crawler_status()
+
+
+@router.get("/policy-crawler/sources", response_model=list[PolicyCrawlerSourceSummary])
+def list_admin_policy_crawler_sources(
+    current_user: AuthenticatedUser = Depends(require_admin),
+) -> list[PolicyCrawlerSourceSummary]:
+    del current_user
+    return get_admin_service().list_policy_crawler_sources()
+
+
+@router.post("/policy-crawler/sources/{source_id}/run", response_model=PolicyCrawlerRunSummary)
+def run_admin_policy_crawler_source(
+    source_id: str,
+    current_user: AuthenticatedUser = Depends(require_admin),
+) -> PolicyCrawlerRunSummary:
+    try:
+        return get_admin_service().run_policy_crawler_source(
+            source_id=source_id,
+            requested_by_user_id=current_user.user_id,
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Policy crawler source not found.")
+    except PolicyCrawlerBusyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Policy crawler run failed for source_id=%s", source_id)
+        raise HTTPException(status_code=500, detail="Policy crawler run failed. Check run status and server logs.") from exc
+
+
+@router.get("/policy-crawler/runs", response_model=list[PolicyCrawlerRunSummary])
+def list_admin_policy_crawler_runs(
+    source_id: str | None = None,
+    limit: int = 20,
+    current_user: AuthenticatedUser = Depends(require_admin),
+) -> list[PolicyCrawlerRunSummary]:
+    del current_user
+    return get_admin_service().list_policy_crawler_runs(source_id=source_id, limit=limit)
+
+
+@router.get("/policy-crawler/candidates", response_model=list[PolicyCrawlerCandidateSummary])
+def list_admin_policy_crawler_candidates(
+    status: PolicyCrawlerCandidateStatus | None = None,
+    source_id: str | None = None,
+    limit: int = 50,
+    current_user: AuthenticatedUser = Depends(require_admin),
+) -> list[PolicyCrawlerCandidateSummary]:
+    del current_user
+    return get_admin_service().list_policy_crawler_candidates(status=status, source_id=source_id, limit=limit)
+
+
+@router.post("/policy-crawler/candidates/{candidate_id}/publish", response_model=PolicyCrawlerCandidateSummary)
+def publish_admin_policy_crawler_candidate(
+    candidate_id: str,
+    current_user: AuthenticatedUser = Depends(require_admin),
+) -> PolicyCrawlerCandidateSummary:
+    try:
+        return get_admin_service().publish_policy_crawler_candidate(
+            candidate_id=candidate_id,
+            reviewed_by_user_id=current_user.user_id,
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Policy crawler candidate not found.")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=409, detail=f"Candidate content file is missing: {exc}") from exc
+
+
+@router.post("/policy-crawler/candidates/{candidate_id}/reject", response_model=PolicyCrawlerCandidateSummary)
+def reject_admin_policy_crawler_candidate(
+    candidate_id: str,
+    current_user: AuthenticatedUser = Depends(require_admin),
+) -> PolicyCrawlerCandidateSummary:
+    try:
+        return get_admin_service().reject_policy_crawler_candidate(
+            candidate_id=candidate_id,
+            reviewed_by_user_id=current_user.user_id,
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Policy crawler candidate not found.")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.patch("/private-samples/{doc_id}", response_model=AdminPrivateSampleItem)

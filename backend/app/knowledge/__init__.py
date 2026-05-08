@@ -54,6 +54,7 @@ __all__ = [
     "extract_text_from_source",
     "get_knowledge_service",
     "get_knowledge_task_runner",
+    "get_policy_crawler_scheduler",
     "hash_chunk_content",
     "token_count",
 ]
@@ -65,5 +66,8 @@ def __getattr__(name: str):
         return getattr(module, name)
     if name == "KnowledgeTaskRunner" or name == "get_knowledge_task_runner":
         module = import_module("app.knowledge.runner")
+        return getattr(module, name)
+    if name == "get_policy_crawler_scheduler":
+        module = import_module("app.knowledge.policy_live_crawler")
         return getattr(module, name)
     raise AttributeError(name)

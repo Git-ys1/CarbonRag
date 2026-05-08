@@ -134,6 +134,76 @@ export interface PolicyShowcaseStatus {
     indexed: boolean;
 }
 
+export type PolicyCrawlerCandidateStatus = "pending_review" | "published" | "rejected";
+
+export interface PolicyCrawlerSourceSummary {
+    source_id: string;
+    title: string;
+    source_url: string;
+    source_label: string;
+    allowed_domain: string;
+    is_enabled: boolean;
+    schedule_interval_seconds: number | null;
+    last_run_id: string | null;
+    last_run_status: string | null;
+    last_run_at: string | null;
+    next_run_at: string | null;
+    last_error: string | null;
+    metadata: Record<string, unknown>;
+}
+
+export interface PolicyCrawlerRunSummary {
+    run_id: string;
+    source_id: string;
+    trigger_type: string;
+    triggered_by_user_id: string | null;
+    status: string;
+    provider_name: string | null;
+    started_at: string;
+    finished_at: string | null;
+    document_count: number;
+    candidate_count: number;
+    error_detail: string | null;
+    metadata: Record<string, unknown>;
+}
+
+export interface PolicyCrawlerCandidateSummary {
+    candidate_id: string;
+    run_id: string;
+    source_id: string;
+    url: string;
+    title: string | null;
+    content_type: string;
+    content_hash: string;
+    source_name: string | null;
+    fetched_at: string | null;
+    status: PolicyCrawlerCandidateStatus;
+    reviewed_by_user_id: string | null;
+    reviewed_at: string | null;
+    review_note: string | null;
+    knowledge_item_id: string | null;
+    created_at: string;
+    updated_at: string;
+    metadata: Record<string, unknown>;
+}
+
+export interface PolicyCrawlerStatusSummary {
+    scheduler_started: boolean;
+    scheduled_enabled: boolean;
+    manual_enabled: boolean;
+    running: boolean;
+    provider_name: string;
+    provider_mode: string;
+    provider_enabled: boolean;
+    provider_available: boolean;
+    interval_seconds: number;
+    initial_delay_seconds: number;
+    source_count: number;
+    pending_candidate_count: number;
+    recent_run_status: string | null;
+    safe_limits: Record<string, unknown>;
+}
+
 export interface UpdateAdminPrivateSampleRequest {
     is_enabled: boolean;
     session_attachable: boolean;

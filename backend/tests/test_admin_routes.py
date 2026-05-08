@@ -4,6 +4,8 @@ from app.admin.service import AdminService
 from app.knowledge import KnowledgeService
 from app.knowledge.runner import KnowledgeTaskRunner
 from app.knowledge.store import KnowledgeStore
+from app.knowledge.policy_ingestion import CrawledDocument, FakeCrawlerProvider
+from app.knowledge.policy_live_crawler import PolicyCrawlerScheduler, PolicyCrawlerStore
 from app.main import app
 from app.retrieval.public_retriever import get_public_policy_retriever
 from tests.test_helpers import TEST_PASSWORD, patch_test_auth_service
@@ -203,3 +205,98 @@ def test_admin_policy_showcase_source_runs_to_retrievable_demo_policy(monkeypatc
     second_run_response = client.post(f"/api/v1/admin/policy-sources/{source['source_id']}/run")
     assert second_run_response.status_code == 200
     assert len(knowledge_service.list_admin_items(source_type="public_policy_web")) == item_count
+
+
+def test_admin_policy_live_crawler_review_flow(monkeypatch, tmp_path) -> None:
+    db_path = tmp_path / "carbonrag.sqlite3"
+    auth_service = patch_test_auth_service(monkeypatch, db_path=db_path)
+    auth_service.ensure_seed_admin_and_backfill()
+    admin_service = build_admin_service(auth_service=auth_service, db_path=db_path)
+    document = CrawledDocument(
+        url="https://www.gov.cn/zhengce/admin-live-policy.html",
+        title="Admin live policy sample",
+        content="<html><body><p>Article 1 promotes carbon accounting.</p></body></html>",
+        source_name="Official policy source",
+    )
+    scheduler = PolicyCrawlerScheduler(
+        store=PolicyCrawlerStore(sqlite_db_path=db_path),
+        provider=FakeCrawlerProvider(documents=[document]),
+        candidate_dir=tmp_path / "candidates",
+    )
+    scheduler.start()
+    knowledge_service = build_knowledge_service(db_path=db_path)
+    runner = KnowledgeTaskRunner()
+    monkeypatch.setattr("app.api.v1.endpoints.admin.get_admin_service", lambda: admin_service)
+    monkeypatch.setattr("app.admin.service.get_policy_crawler_scheduler", lambda: scheduler)
+    monkeypatch.setattr("app.knowledge.service.get_knowledge_service", lambda: knowledge_service)
+    monkeypatch.setattr("app.knowledge.runner.get_knowledge_task_runner", lambda: runner)
+
+    client.cookies.clear()
+    client.post("/api/v1/auth/register", json={"username": "crawler_user", "password": TEST_PASSWORD})
+    client.post("/api/v1/auth/login", json={"username": "crawler_user", "password": TEST_PASSWORD})
+    blocked_response = client.get("/api/v1/admin/policy-crawler/sources")
+    assert blocked_response.status_code == 403
+
+    client.cookies.clear()
+    login_seed_admin_and_change_password()
+
+    status_response = client.get("/api/v1/admin/policy-crawler/status")
+    assert status_response.status_code == 200
+    assert status_response.json()["scheduled_enabled"] is False
+
+    sources_response = client.get("/api/v1/admin/policy-crawler/sources")
+    assert sources_response.status_code == 200
+    assert any(item["source_id"] == "gov-cn-policy-library" for item in sources_response.json())
+
+    run_response = client.post("/api/v1/admin/policy-crawler/sources/gov-cn-policy-library/run")
+    assert run_response.status_code == 200
+    assert run_response.json()["status"] == "succeeded"
+
+    candidates_response = client.get("/api/v1/admin/policy-crawler/candidates")
+    assert candidates_response.status_code == 200
+    candidate = candidates_response.json()[0]
+    assert candidate["status"] == "pending_review"
+
+    runs_response = client.get("/api/v1/admin/policy-crawler/runs")
+    assert runs_response.status_code == 200
+    assert runs_response.json()[0]["candidate_count"] == 1
+
+    publish_response = client.post(f"/api/v1/admin/policy-crawler/candidates/{candidate['candidate_id']}/publish")
+    assert publish_response.status_code == 200
+    assert publish_response.json()["status"] == "published"
+    assert publish_response.json()["knowledge_item_id"]
+
+    second_publish_response = client.post(f"/api/v1/admin/policy-crawler/candidates/{candidate['candidate_id']}/publish")
+    assert second_publish_response.status_code == 400
+
+
+def test_admin_policy_live_crawler_reject_flow(monkeypatch, tmp_path) -> None:
+    db_path = tmp_path / "carbonrag.sqlite3"
+    auth_service = patch_test_auth_service(monkeypatch, db_path=db_path)
+    auth_service.ensure_seed_admin_and_backfill()
+    admin_service = build_admin_service(auth_service=auth_service, db_path=db_path)
+    document = CrawledDocument(
+        url="https://www.gov.cn/zhengce/admin-reject-policy.html",
+        title="Admin reject policy sample",
+        content="<html><body><p>Article 1 promotes carbon accounting.</p></body></html>",
+        source_name="Official policy source",
+    )
+    scheduler = PolicyCrawlerScheduler(
+        store=PolicyCrawlerStore(sqlite_db_path=db_path),
+        provider=FakeCrawlerProvider(documents=[document]),
+        candidate_dir=tmp_path / "candidates",
+    )
+    scheduler.start()
+    monkeypatch.setattr("app.api.v1.endpoints.admin.get_admin_service", lambda: admin_service)
+    monkeypatch.setattr("app.admin.service.get_policy_crawler_scheduler", lambda: scheduler)
+
+    client.cookies.clear()
+    login_seed_admin_and_change_password()
+
+    run_response = client.post("/api/v1/admin/policy-crawler/sources/gov-cn-policy-library/run")
+    assert run_response.status_code == 200
+    candidate = client.get("/api/v1/admin/policy-crawler/candidates").json()[0]
+
+    reject_response = client.post(f"/api/v1/admin/policy-crawler/candidates/{candidate['candidate_id']}/reject")
+    assert reject_response.status_code == 200
+    assert reject_response.json()["status"] == "rejected"

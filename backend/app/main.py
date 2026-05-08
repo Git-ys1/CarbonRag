@@ -6,7 +6,7 @@ from app.api.v1.router import router as api_router
 from app.auth.service import get_auth_service
 from app.core.config import get_settings
 from app.core.logging import configure_logging
-from app.knowledge import get_knowledge_service, get_knowledge_task_runner
+from app.knowledge import get_knowledge_service, get_knowledge_task_runner, get_policy_crawler_scheduler
 
 settings = get_settings()
 configure_logging()
@@ -32,8 +32,10 @@ def bootstrap_identity_runtime() -> None:
     get_auth_service()
     get_knowledge_service().sync_shared_private_samples()
     get_knowledge_task_runner().start()
+    get_policy_crawler_scheduler().start()
 
 
 @app.on_event("shutdown")
 def shutdown_knowledge_runtime() -> None:
+    get_policy_crawler_scheduler().stop()
     get_knowledge_task_runner().stop()

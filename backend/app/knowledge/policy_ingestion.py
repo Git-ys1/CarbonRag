@@ -67,6 +67,7 @@ class PolicyCrawlRequest(BaseModel):
     download_delay_seconds: float = Field(default=1.0, ge=0.0)
     concurrent_requests_per_domain: int = Field(default=2, ge=1, le=4)
     timeout_seconds: float = Field(default=60.0, ge=1.0, le=300.0)
+    user_agent: str | None = Field(default=None, max_length=240)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("start_urls")
@@ -613,6 +614,7 @@ def _scrapy_settings_metadata(request: PolicyCrawlRequest) -> dict[str, Any]:
         "max_depth": request.max_depth,
         "max_pages": request.max_pages,
         "timeout_seconds": request.timeout_seconds,
+        "user_agent": request.user_agent,
     }
 
 

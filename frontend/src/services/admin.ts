@@ -5,6 +5,11 @@ import type {
     AdminSystemStatus,
     AdminUserSummary,
     KnowledgeRefreshTask,
+    PolicyCrawlerCandidateStatus,
+    PolicyCrawlerCandidateSummary,
+    PolicyCrawlerRunSummary,
+    PolicyCrawlerSourceSummary,
+    PolicyCrawlerStatusSummary,
     PolicyShowcaseChunkSummary,
     PolicyShowcaseRetrievalPreview,
     PolicyShowcaseSourceSummary,
@@ -69,6 +74,62 @@ export async function getPolicyShowcaseRetrievalPreview(sourceId: string, query?
                 top_k: topK,
             },
         },
+    );
+    return response.data;
+}
+
+export async function getPolicyCrawlerStatus() {
+    const response = await httpClient.get<PolicyCrawlerStatusSummary>("/v1/admin/policy-crawler/status");
+    return response.data;
+}
+
+export async function listPolicyCrawlerSources() {
+    const response = await httpClient.get<PolicyCrawlerSourceSummary[]>("/v1/admin/policy-crawler/sources");
+    return response.data;
+}
+
+export async function runPolicyCrawlerSource(sourceId: string) {
+    const response = await httpClient.post<PolicyCrawlerRunSummary>(`/v1/admin/policy-crawler/sources/${sourceId}/run`, {});
+    return response.data;
+}
+
+export async function listPolicyCrawlerRuns(sourceId?: string, limit = 20) {
+    const response = await httpClient.get<PolicyCrawlerRunSummary[]>("/v1/admin/policy-crawler/runs", {
+        params: {
+            source_id: sourceId,
+            limit,
+        },
+    });
+    return response.data;
+}
+
+export async function listPolicyCrawlerCandidates(
+    status?: PolicyCrawlerCandidateStatus,
+    sourceId?: string,
+    limit = 50,
+) {
+    const response = await httpClient.get<PolicyCrawlerCandidateSummary[]>("/v1/admin/policy-crawler/candidates", {
+        params: {
+            status,
+            source_id: sourceId,
+            limit,
+        },
+    });
+    return response.data;
+}
+
+export async function publishPolicyCrawlerCandidate(candidateId: string) {
+    const response = await httpClient.post<PolicyCrawlerCandidateSummary>(
+        `/v1/admin/policy-crawler/candidates/${candidateId}/publish`,
+        {},
+    );
+    return response.data;
+}
+
+export async function rejectPolicyCrawlerCandidate(candidateId: string) {
+    const response = await httpClient.post<PolicyCrawlerCandidateSummary>(
+        `/v1/admin/policy-crawler/candidates/${candidateId}/reject`,
+        {},
     );
     return response.data;
 }

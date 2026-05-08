@@ -29,6 +29,9 @@ CORE_TABLES = (
     "report_sources",
     "private_sample_catalog_overrides",
     "knowledge_refresh_tasks",
+    "policy_crawl_sources",
+    "policy_crawl_runs",
+    "policy_crawl_candidates",
 )
 
 OWNER_TABLES = (
@@ -490,6 +493,70 @@ CREATE TABLE IF NOT EXISTS knowledge_refresh_tasks (
     finished_at TEXT,
     FOREIGN KEY (requested_by_user_id) REFERENCES users(user_id) ON DELETE SET NULL
 );
+
+CREATE TABLE IF NOT EXISTS policy_crawl_sources (
+    source_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_id TEXT NOT NULL UNIQUE,
+    title TEXT NOT NULL,
+    source_url TEXT NOT NULL UNIQUE,
+    source_label TEXT NOT NULL,
+    allowed_domain TEXT NOT NULL,
+    is_enabled INTEGER NOT NULL DEFAULT 1,
+    schedule_interval_seconds INTEGER,
+    last_run_id TEXT,
+    last_run_status TEXT,
+    last_run_at TEXT,
+    next_run_at TEXT,
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    metadata_json TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE TABLE IF NOT EXISTS policy_crawl_runs (
+    run_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL UNIQUE,
+    source_id TEXT NOT NULL,
+    trigger_type TEXT NOT NULL,
+    triggered_by_user_id TEXT,
+    status TEXT NOT NULL,
+    provider_name TEXT,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    document_count INTEGER NOT NULL DEFAULT 0,
+    candidate_count INTEGER NOT NULL DEFAULT 0,
+    error_detail TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    FOREIGN KEY (source_id) REFERENCES policy_crawl_sources(source_id) ON DELETE CASCADE,
+    FOREIGN KEY (triggered_by_user_id) REFERENCES users(user_id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS policy_crawl_candidates (
+    candidate_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    candidate_id TEXT NOT NULL UNIQUE,
+    run_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    url TEXT NOT NULL,
+    title TEXT,
+    content_type TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    source_name TEXT,
+    fetched_at TEXT,
+    storage_path TEXT NOT NULL,
+    status TEXT NOT NULL,
+    reviewed_by_user_id TEXT,
+    reviewed_at TEXT,
+    review_note TEXT,
+    knowledge_item_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    UNIQUE (source_id, url, content_hash),
+    FOREIGN KEY (run_id) REFERENCES policy_crawl_runs(run_id) ON DELETE CASCADE,
+    FOREIGN KEY (source_id) REFERENCES policy_crawl_sources(source_id) ON DELETE CASCADE,
+    FOREIGN KEY (reviewed_by_user_id) REFERENCES users(user_id) ON DELETE SET NULL,
+    FOREIGN KEY (knowledge_item_id) REFERENCES knowledge_items(knowledge_item_id) ON DELETE SET NULL
+);
 """
 
 SQLITE_INDEX_SCRIPT = """
@@ -551,6 +618,14 @@ CREATE INDEX IF NOT EXISTS idx_private_sample_catalog_overrides_enabled
     ON private_sample_catalog_overrides(is_enabled, session_attachable);
 CREATE INDEX IF NOT EXISTS idx_knowledge_refresh_tasks_scope_created_at
     ON knowledge_refresh_tasks(scope, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_policy_crawl_sources_enabled
+    ON policy_crawl_sources(is_enabled, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_policy_crawl_runs_source_started
+    ON policy_crawl_runs(source_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_policy_crawl_candidates_status_created
+    ON policy_crawl_candidates(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_policy_crawl_candidates_source_status
+    ON policy_crawl_candidates(source_id, status, updated_at DESC);
 """
 
 POSTGRES_SCHEMA_STATEMENTS = (
@@ -994,6 +1069,67 @@ POSTGRES_SCHEMA_STATEMENTS = (
         finished_at TEXT
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS policy_crawl_sources (
+        source_seq BIGSERIAL PRIMARY KEY,
+        source_id TEXT NOT NULL UNIQUE,
+        title TEXT NOT NULL,
+        source_url TEXT NOT NULL UNIQUE,
+        source_label TEXT NOT NULL,
+        allowed_domain TEXT NOT NULL,
+        is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        schedule_interval_seconds INTEGER,
+        last_run_id TEXT,
+        last_run_status TEXT,
+        last_run_at TEXT,
+        next_run_at TEXT,
+        last_error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        metadata_json TEXT NOT NULL DEFAULT '{}'
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS policy_crawl_runs (
+        run_seq BIGSERIAL PRIMARY KEY,
+        run_id TEXT NOT NULL UNIQUE,
+        source_id TEXT NOT NULL REFERENCES policy_crawl_sources(source_id) ON DELETE CASCADE,
+        trigger_type TEXT NOT NULL,
+        triggered_by_user_id TEXT REFERENCES users(user_id) ON DELETE SET NULL,
+        status TEXT NOT NULL,
+        provider_name TEXT,
+        started_at TEXT NOT NULL,
+        finished_at TEXT,
+        document_count INTEGER NOT NULL DEFAULT 0,
+        candidate_count INTEGER NOT NULL DEFAULT 0,
+        error_detail TEXT,
+        metadata_json TEXT NOT NULL DEFAULT '{}'
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS policy_crawl_candidates (
+        candidate_seq BIGSERIAL PRIMARY KEY,
+        candidate_id TEXT NOT NULL UNIQUE,
+        run_id TEXT NOT NULL REFERENCES policy_crawl_runs(run_id) ON DELETE CASCADE,
+        source_id TEXT NOT NULL REFERENCES policy_crawl_sources(source_id) ON DELETE CASCADE,
+        url TEXT NOT NULL,
+        title TEXT,
+        content_type TEXT NOT NULL,
+        content_hash TEXT NOT NULL,
+        source_name TEXT,
+        fetched_at TEXT,
+        storage_path TEXT NOT NULL,
+        status TEXT NOT NULL,
+        reviewed_by_user_id TEXT REFERENCES users(user_id) ON DELETE SET NULL,
+        reviewed_at TEXT,
+        review_note TEXT,
+        knowledge_item_id TEXT REFERENCES knowledge_items(knowledge_item_id) ON DELETE SET NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        UNIQUE (source_id, url, content_hash)
+    )
+    """,
     "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
     "ALTER TABLE files ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
     "ALTER TABLE messages ADD COLUMN IF NOT EXISTS thinking_content TEXT",
@@ -1060,6 +1196,10 @@ POSTGRES_SCHEMA_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_report_sources_report_order ON report_sources(report_id, order_index ASC)",
     "CREATE INDEX IF NOT EXISTS idx_private_sample_catalog_overrides_enabled ON private_sample_catalog_overrides(is_enabled, session_attachable)",
     "CREATE INDEX IF NOT EXISTS idx_knowledge_refresh_tasks_scope_created_at ON knowledge_refresh_tasks(scope, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_policy_crawl_sources_enabled ON policy_crawl_sources(is_enabled, updated_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_policy_crawl_runs_source_started ON policy_crawl_runs(source_id, started_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_policy_crawl_candidates_status_created ON policy_crawl_candidates(status, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_policy_crawl_candidates_source_status ON policy_crawl_candidates(source_id, status, updated_at DESC)",
 )
 
 
