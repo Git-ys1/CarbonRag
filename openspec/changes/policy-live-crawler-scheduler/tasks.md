@@ -37,5 +37,5 @@
 ## 6. PR Readiness
 
 - [x] 6.1 Update `日志/#2/V1.3.4/开发日志.md` with scope, #1 constraints, validation, and known limitations.
-- [ ] 6.2 Post Mattermost `CHANGED` and `REVIEW_READY` with GitNexus/OpenSpec/test results.
-- [ ] 6.3 Commit, push to #2 fork, and open PR to `Git-ys1/CarbonRag:main` with version `V1.3.4`.
+- [x] 6.2 Post Mattermost `CHANGED` and `REVIEW_READY` with GitNexus/OpenSpec/test results.
+- [x] 6.3 Commit, push to #2 fork, and open PR to `Git-ys1/CarbonRag:main` with version `V1.3.4`.
