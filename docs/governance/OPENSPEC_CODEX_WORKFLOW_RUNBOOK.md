@@ -168,6 +168,33 @@ openspec list
 openspec validate --all
 ```
 
+从 V1.4.7 起，复杂代码改动还要检查 GitNexus：
+
+```powershell
+gitnexus status
+gitnexus query <topic>
+gitnexus impact <symbol>
+```
+
+如果本机尚未索引：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/gitnexus-full-index.ps1 -Proxy "http://127.0.0.1:17891"
+```
+
+OpenSpec 负责变更边界；GitNexus 负责代码结构和影响范围。
+
+从 V1.4.7B 起，多席位非平凡改动还要检查 Mattermost：
+
+```powershell
+$env:MATTERMOST_URL="http://8.141.111.33:8065"
+$env:MATTERMOST_TEAM="carbonrag"
+$env:MATTERMOST_CHANNEL="carbonrag-control"
+```
+
+Codex 必须读取 `carbonrag-control` 最近消息，确认没有 active `BLOCK` / `LOCK` / 冲突 `DECISION`，再发 `PLAN`。
+涉及 API、DB、auth、deployment、model provider、carbon engine、RAG core 或跨模块改动时，必须等 #1 `ACK` 后才能进入 apply。
+
 如果任务需要同步远端，Codex 可以执行只读：
 
 ```powershell

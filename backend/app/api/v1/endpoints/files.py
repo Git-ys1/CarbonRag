@@ -7,6 +7,7 @@ from app.files.service import FileService, get_file_service
 from app.retrieval.mixed_retriever import get_mixed_scope_retriever
 from app.retrieval.private_retriever import get_private_sample_retriever
 from app.knowledge import get_knowledge_service
+from app.rag.service import get_rag_engine_service
 from app.session.service import get_session_service
 
 router = APIRouter()
@@ -35,6 +36,7 @@ async def upload_file(
             pass
         get_private_sample_retriever.cache_clear()
         get_mixed_scope_retriever.cache_clear()
+        get_rag_engine_service.cache_clear()
         item = knowledge_service.store.get_item_by_source(
             owner_user_id=current_user.user_id,
             library_scope="personal",

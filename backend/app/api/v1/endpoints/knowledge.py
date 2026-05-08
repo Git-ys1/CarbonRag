@@ -5,6 +5,7 @@ from app.auth.schemas import AuthenticatedUser
 from app.knowledge import get_knowledge_service
 from app.knowledge.schemas import KnowledgeItemDetail, KnowledgeItemSummary, KnowledgeTaskSummary
 from app.private_samples.catalog import refresh_private_sample_catalog
+from app.rag.service import get_rag_engine_service
 from app.retrieval.mixed_retriever import get_mixed_scope_retriever
 from app.retrieval.private_retriever import get_private_sample_retriever
 from app.session.schemas import ReplaceAttachedPrivateSamplesRequest, SessionDetail
@@ -22,6 +23,7 @@ def _sync_user_knowledge(owner_user_id: str) -> None:
         pass
     get_private_sample_retriever.cache_clear()
     get_mixed_scope_retriever.cache_clear()
+    get_rag_engine_service.cache_clear()
 
 
 def _get_bound_session_service():

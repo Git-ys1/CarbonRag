@@ -1,6 +1,6 @@
 # CarbonRag
 
-当前状态：`V1.4.0 碳核算主线启动 / V1.3.x RAG 主线由 #2 负责推进`
+当前状态：`V1.4.7 GitNexus 结构感知工作流试点 / V1.4.x 碳核算主线由 #1 负责 / V1.3.x RAG 主线由 #2 负责`
 
 CarbonRag 是面向中小企业低碳管理场景的 AI 工作台。项目目标不是做一个泛用聊天壳，而是把“政策问答、私有知识、碳核算、报告生成、反馈闭环、多人治理”整合成一套可试用、可部署、可协作演进的垂直系统。
 
@@ -9,6 +9,8 @@ CarbonRag 是面向中小企业低碳管理场景的 AI 工作台。项目目标
 - 新人和 #2/#3 入场：先看 [快速上手.md](快速上手.md)
 - 全体协作规则：看 [开发公告.md](开发公告.md)
 - OpenSpec + Codex 怎么开工：看 [docs/governance/OPENSPEC_CODEX_WORKFLOW_RUNBOOK.md](docs/governance/OPENSPEC_CODEX_WORKFLOW_RUNBOOK.md)
+- GitNexus + Codex MCP 怎么跑：看 [docs/governance/GITNEXUS_CODE_INTELLIGENCE_RUNBOOK.md](docs/governance/GITNEXUS_CODE_INTELLIGENCE_RUNBOOK.md)
+- Mattermost + Codex 多 Agent 协同怎么跑：看 [docs/governance/MATTERMOST_CODEX_COORDINATION_RUNBOOK.md](docs/governance/MATTERMOST_CODEX_COORDINATION_RUNBOOK.md)
 - PR 怎么审：看 [docs/governance/PR_REVIEW_RUNBOOK.md](docs/governance/PR_REVIEW_RUNBOOK.md)
 - 本地怎么跑：看 [docs/DEVELOPMENT_BOOTSTRAP.md](docs/DEVELOPMENT_BOOTSTRAP.md)
 - 云端怎么部署：看 [docs/deploy/VPS_BACKEND_DEPLOY.md](docs/deploy/VPS_BACKEND_DEPLOY.md) 和 [docs/deploy/NETLIFY_FRONTEND.md](docs/deploy/NETLIFY_FRONTEND.md)
@@ -158,6 +160,50 @@ openspec validate --all
 
 注意：`propose / apply / archive` 是工作阶段，不是 PowerShell 里的顶层命令。具体命令与手动文件结构见 [docs/governance/OPENSPEC_CODEX_WORKFLOW_RUNBOOK.md](docs/governance/OPENSPEC_CODEX_WORKFLOW_RUNBOOK.md)。
 
+## GitNexus 结构感知工作方式
+
+V1.4.7 起，#1 团队引入 GitNexus 作为本地代码知识图谱和影响分析工具。
+
+推荐安装：
+
+```powershell
+npm install -g gitnexus@rc
+codex mcp add gitnexus -- npx -y gitnexus@rc mcp
+```
+
+推荐索引：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/gitnexus-full-index.ps1 -Proxy "http://127.0.0.1:17891"
+```
+
+原则：
+
+- OpenSpec 管“做什么、为什么、边界”。
+- GitNexus 管“代码在哪、依赖谁、影响面多大”。
+- Codex 读取 OpenSpec + GitNexus 后再改代码。
+
+`.gitnexus/` 和 `logs/gitnexus/` 是本地生成物，不提交。
+
+## Mattermost 多 Agent 协同方式
+
+V1.4.7B 起，Mattermost 被定义为施工中的实时协同总线。
+
+固定分工：
+
+- OpenSpec 管“做什么、为什么、边界”。
+- GitNexus 管“代码在哪、影响面多大”。
+- Mattermost 管“PLAN、ACK、BLOCK、LOCK、DECISION、CHANGED、REVIEW_READY”。
+- GitHub 管“PR、CI、review、merge”。
+
+试点入口计划使用：
+
+```text
+http://8.141.111.33:8065
+```
+
+当前 `8065` 端口若不可达，说明 VPS 尚未部署 Mattermost 或安全组未放行。配置和验收见 [docs/governance/MATTERMOST_CODEX_COORDINATION_RUNBOOK.md](docs/governance/MATTERMOST_CODEX_COORDINATION_RUNBOOK.md)。
+
 ## 新席位本地启动
 
 #2/#3 从自己的 fork 开始：
@@ -205,6 +251,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev-local.ps1
 - [docs/governance/OPEN_COLLABORATION_GUIDE.md](docs/governance/OPEN_COLLABORATION_GUIDE.md)
 - [docs/governance/SEAT_ONBOARDING_RUNBOOK.md](docs/governance/SEAT_ONBOARDING_RUNBOOK.md)
 - [docs/governance/OPENSPEC_CODEX_WORKFLOW_RUNBOOK.md](docs/governance/OPENSPEC_CODEX_WORKFLOW_RUNBOOK.md)
+- [docs/governance/GITNEXUS_CODE_INTELLIGENCE_RUNBOOK.md](docs/governance/GITNEXUS_CODE_INTELLIGENCE_RUNBOOK.md)
+- [docs/governance/GITNEXUS_CODEX_MCP_CHECKLIST.md](docs/governance/GITNEXUS_CODEX_MCP_CHECKLIST.md)
 - [docs/governance/PR_REVIEW_RUNBOOK.md](docs/governance/PR_REVIEW_RUNBOOK.md)
 - [docs/architecture/MODULE_BOUNDARY_MAP.md](docs/architecture/MODULE_BOUNDARY_MAP.md)
 - [docs/PLAN/V1.4.0.md](docs/PLAN/V1.4.0.md)

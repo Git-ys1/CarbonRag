@@ -35,9 +35,14 @@ coverage/
 !.env.example
 !frontend/.env.example
 !frontend/.env.production
+.env.mattermost
+.mattermost-token
+coordination.local.json
 
 # Logs
 *.log
+!logs/
+!logs/.gitkeep
 
 # Runtime outputs
 data/outputs/*
@@ -63,6 +68,11 @@ runtime/
 openspec/**/*.log
 openspec/**/*.tmp
 openspec/**/.DS_Store
+
+# GitNexus local indexes and diagnostic logs
+.gitnexus/
+logs/gitnexus/
+.claude/skills/generated/
 
 # Local-only AI/model artifacts
 local_models/

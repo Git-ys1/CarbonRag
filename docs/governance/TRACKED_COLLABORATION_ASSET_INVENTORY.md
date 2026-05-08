@@ -11,6 +11,7 @@
 - `AGENTS.md`
 - `openspec/**`
 - `.codex/skills/**`
+- `.claude/skills/gitnexus/**`
 - `.github/CODEOWNERS`
 - `.github/PULL_REQUEST_TEMPLATE.md`
 - `.github/workflows/**`
@@ -40,6 +41,8 @@
 - `node_modules/`
 - `frontend/node_modules/`
 - `.spec-gen/`
+- `.gitnexus/`
+- `.claude/skills/generated/`
 - `3rdparty/spec-gen/`
 - `*.sqlite`
 - `*.sqlite3`
@@ -50,6 +53,7 @@
 - `.vite/`
 - `frontend/dist/`
 - `*.log`
+- `logs/gitnexus/`
 - API key
 - 本地模型路径
 - 本地 agent session
@@ -82,6 +86,7 @@
 - Python 环境由 bootstrap 或 `python -m venv .venv` 生成。
 - SQLite/runtime/upload 数据由本地运行生成。
 - `.spec-gen/` 由本地 spec-gen analyze 重新生成。
+- `.claude/skills/generated/` 由 `gitnexus analyze --skills` 重新生成；不要提交，否则会被下一轮索引再次读入并造成模块 skill 抖动。
 
 ## V1.2.5 本地清点命令
 

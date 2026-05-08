@@ -1,0 +1,14 @@
+[mcp_servers.mattermost]
+url = "http://8.141.111.33:8065/plugins/mattermost-ai/mcp-server/mcp"
+bearer_token_env_var = "MATTERMOST_TOKEN"
+enabled = true
+required = true
+tool_timeout_sec = 60
+enabled_tools = [
+  "read_channel",
+  "search_posts",
+  "create_post",
+  "read_post",
+  "get_channel_info"
+]
+
