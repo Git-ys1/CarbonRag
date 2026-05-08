@@ -1,7 +1,7 @@
 export type RagQueryMode = "naive" | "mix";
 export type RagKnowledgeScope = "public" | "private_sample" | "mixed";
 export type RagRetrievalLayer = "vector" | "bm25_fallback" | "graph";
-export type RagSourceType = "public_policy" | "private_sample" | "private_upload";
+export type RagSourceType = "public_policy" | "public_policy_demo" | "private_sample" | "private_upload";
 export type RagVectorStatus = "disabled" | "unavailable" | "queried" | "error";
 export type RagGraphStatus = "unavailable" | "skipped";
 export type RagRerankStatus = "disabled" | "skipped" | "applied" | "error";
@@ -124,6 +124,7 @@ export interface RagRetrievalMetadata {
     fallback_reason?: string | null;
     latency_ms?: number | null;
     public_chunk_count?: number | null;
+    public_policy_demo_chunk_count?: number | null;
     private_chunk_count?: number | null;
     graph_entities?: RagGraphEntity[] | null;
     graph_relations?: RagGraphRelation[] | null;

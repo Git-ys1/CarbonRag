@@ -5,14 +5,14 @@ The policy ingestion backend can already prove the three-stage flow in tests and
 ## What Changes
 
 - Add a product-facing policy ingestion showcase path inside the existing app experience:
-  - admins can seed or refresh a curated official-policy source from the normal knowledge/admin surface;
+  - admins can seed or refresh a curated built-in showcase source from the normal knowledge/admin surface;
   - the operation uses the real `crawl_ingest` and `policy_ingest` workflow;
-  - the resulting `public_policy_web` item is visible as shared public policy knowledge;
-  - RAG Lab can immediately retrieve it and show the evidence.
+  - the resulting `public_policy_web` item is visible as shared demo/showcase knowledge;
+  - RAG Lab can immediately retrieve it and show the evidence as `public_policy_demo`, not official policy evidence.
 - Add backend APIs that expose policy ingestion source/status/workflow/chunk/retrieval state in a reusable shape, not as one-off demo-only endpoints.
 - Add frontend controls and status panels in existing protected/admin surfaces rather than a separate demo island.
 - Add a rehearsable “showcase script” that checks the same product path end to end for local validation.
-- Keep live network crawling optional and disabled by default; the showcase seed uses a controlled built-in official-policy fixture so presentations are stable.
+- Keep live network crawling optional and disabled by default; the showcase seed uses a controlled built-in synthetic fixture so presentations are stable and explicitly non-official.
 - Keep `/ask`, session, report, calc, and existing RAG Lab defaults unchanged unless the user explicitly runs the showcase ingestion.
 
 ## Capabilities

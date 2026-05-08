@@ -10,6 +10,7 @@ export interface KnowledgeItem {
     knowledge_item_id: string;
     title: string;
     owner_user_id: string | null;
+    visibility?: "public" | "tenant" | "private" | "demo" | null;
     library_scope: KnowledgeLibraryScope;
     source_type: KnowledgeSourceType;
     source_ref: string;

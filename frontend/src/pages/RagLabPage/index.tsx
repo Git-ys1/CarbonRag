@@ -749,12 +749,14 @@ function GraphMetadataPanel({
 
 const sourceTypeLabelMap: Record<RagSourceType, string> = {
     public_policy: "公共政策",
+    public_policy_demo: "演示样例",
     private_sample: "知识条目",
     private_upload: "个人上传",
 };
 
 const sourceTypeColorMap: Record<RagSourceType, string> = {
     public_policy: "blue",
+    public_policy_demo: "orange",
     private_sample: "magenta",
     private_upload: "green",
 };

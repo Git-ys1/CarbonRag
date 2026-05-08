@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 Region = Literal["national", "beijing"]
 DocumentType = Literal["policy", "standard", "guideline"]
-SourceType = Literal["public_policy", "private_sample", "private_upload"]
+SourceType = Literal["public_policy", "public_policy_demo", "private_sample", "private_upload"]
 SampleType = Literal["doc", "table"]
 BusinessTopic = Literal["energy", "production", "logistics", "project_background"]
 

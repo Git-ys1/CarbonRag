@@ -127,7 +127,7 @@ def test_admin_routes_manage_users_private_samples_and_refresh(monkeypatch, tmp_
     assert system_response.json()["total_users"] >= 2
 
 
-def test_admin_policy_showcase_source_runs_to_retrievable_public_policy(monkeypatch, tmp_path) -> None:
+def test_admin_policy_showcase_source_runs_to_retrievable_demo_policy(monkeypatch, tmp_path) -> None:
     db_path = tmp_path / "carbonrag.sqlite3"
     auth_service = patch_test_auth_service(monkeypatch, db_path=db_path)
     auth_service.ensure_seed_admin_and_backfill()
@@ -155,6 +155,10 @@ def test_admin_policy_showcase_source_runs_to_retrievable_public_policy(monkeypa
     assert sources_response.status_code == 200
     source = sources_response.json()[0]
     assert source["source_id"] == "low-carbon-campus-action"
+    assert source["metadata"]["source_kind"] == "demo_showcase"
+    assert source["metadata"]["is_synthetic"] == "true"
+    assert "gov.cn" not in source["source_url"]
+    assert "国务院" not in source["source_label"]
 
     empty_status_response = client.get(f"/api/v1/admin/policy-sources/{source['source_id']}/status")
     assert empty_status_response.status_code == 200
@@ -166,16 +170,21 @@ def test_admin_policy_showcase_source_runs_to_retrievable_public_policy(monkeypa
     run_payload = run_response.json()
     assert run_payload["indexed"] is True
     assert run_payload["item"]["source_type"] == "public_policy_web"
+    assert run_payload["item"]["visibility"] == "demo"
+    assert run_payload["item"]["source_label"] == "演示样例"
     assert run_payload["latest_task"]["task_type"] == "crawl_ingest"
     assert run_payload["latest_task"]["status"] == "succeeded"
     assert run_payload["workflow"]["workflow_type"] == "policy_ingest"
     assert run_payload["workflow"]["status"] == "completed"
     assert run_payload["chunks"]
-    assert run_payload["chunks"][0]["source_type"] == "public_policy"
+    assert run_payload["chunks"][0]["source_type"] == "public_policy_demo"
+    assert run_payload["chunks"][0]["metadata"]["citation_source_type"] == "public_policy_demo"
+    assert run_payload["chunks"][0]["metadata"]["citation_disclaimer"]
 
     chunks_response = client.get(f"/api/v1/admin/policy-sources/{source['source_id']}/chunks")
     assert chunks_response.status_code == 200
     assert chunks_response.json()[0]["metadata"]["original_source_type"] == "public_policy_web"
+    assert chunks_response.json()[0]["source_type"] == "public_policy_demo"
 
     preview_response = client.get(
         f"/api/v1/admin/policy-sources/{source['source_id']}/retrieval-preview",
@@ -185,7 +194,10 @@ def test_admin_policy_showcase_source_runs_to_retrievable_public_policy(monkeypa
     preview_payload = preview_response.json()
     assert preview_payload["total_hits"] >= 1
     assert any(hit["matched_source"] for hit in preview_payload["hits"])
-    assert all(hit["source_type"] == "public_policy" for hit in preview_payload["hits"])
+    matched_hits = [hit for hit in preview_payload["hits"] if hit["matched_source"]]
+    assert matched_hits
+    assert all(hit["source_type"] == "public_policy_demo" for hit in matched_hits)
+    assert all("gov.cn" not in (hit["source_url"] or "") for hit in matched_hits)
 
     item_count = len(knowledge_service.list_admin_items(source_type="public_policy_web"))
     second_run_response = client.post(f"/api/v1/admin/policy-sources/{source['source_id']}/run")

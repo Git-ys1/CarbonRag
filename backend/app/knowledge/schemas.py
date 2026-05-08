@@ -105,7 +105,10 @@ class KnowledgeItemSummary(BaseModel):
             elif source_type == "uploaded_file":
                 payload["source_label"] = "上传文件"
             elif source_type == "public_policy_web":
-                payload["source_label"] = "官方政策网页"
+                if payload.get("visibility") == "demo":
+                    payload["source_label"] = "演示样例"
+                else:
+                    payload["source_label"] = "官方政策网页"
         return payload
 
 

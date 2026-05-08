@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.admin.schemas import (
@@ -24,6 +26,7 @@ from app.retrieval.mixed_retriever import get_mixed_scope_retriever
 from app.retrieval.private_retriever import get_private_sample_retriever
 
 router = APIRouter(prefix="/admin")
+logger = logging.getLogger(__name__)
 
 
 def _clear_private_retrieval_caches() -> None:
@@ -111,7 +114,8 @@ def run_admin_policy_source(
     except KeyError:
         raise HTTPException(status_code=404, detail="Policy source not found.")
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        logger.exception("Policy showcase ingestion failed for source_id=%s", source_id)
+        raise HTTPException(status_code=500, detail="Policy showcase ingestion failed. Check task status and server logs.") from exc
 
 
 @router.get("/policy-sources/{source_id}/status", response_model=PolicyShowcaseStatus)
@@ -194,7 +198,8 @@ def trigger_knowledge_refresh_task(
             requested_by_user_id=current_user.user_id,
         )
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        logger.exception("Knowledge refresh failed for scope=%s", payload.scope)
+        raise HTTPException(status_code=500, detail="Knowledge refresh failed. Please retry later or check server logs.") from exc
 
 
 @router.get("/knowledge-items", response_model=list[KnowledgeItemSummary])

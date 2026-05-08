@@ -494,11 +494,12 @@ def build_policy_web_knowledge_item(
 ) -> KnowledgeItem:
     now = created_at or _utcnow()
     crawled = staged.crawled
+    visibility = "demo" if _is_demo_showcase_document(crawled) else "public"
     return KnowledgeItem(
         knowledge_item_id=knowledge_item_id or f"policy-web-{hash_content(crawled.url)[:12]}",
         tenant_id=None,
         owner_user_id=None,
-        visibility="public",
+        visibility=visibility,
         created_by=None,
         library_scope="shared",
         source_type="public_policy_web",
@@ -566,6 +567,7 @@ def build_policy_chunks(
 ) -> list[KnowledgeChunk]:
     chunks = chunk_knowledge_text(item=item, text=parsed.text, created_at=created_at)
     metadata_payload = policy_metadata.model_dump(mode="json")
+    is_demo_showcase = item.visibility == "demo" or str(metadata_payload.get("source_kind") or "").startswith("demo")
     for chunk in chunks:
         chunk.source_url = policy_metadata.source_url or item.source_url
         chunk.issued_at = policy_metadata.publication_date
@@ -574,10 +576,33 @@ def build_policy_chunks(
         chunk.metadata = {
             **metadata_payload,
             "original_source_type": item.source_type,
+            "retrieval_source_type": chunk.source_type,
             "chunk_content_hash": hash_content(chunk.snippet),
             "parser_name": parsed.parser_name,
         }
+        if is_demo_showcase:
+            chunk.metadata.update(
+                {
+                    "showcase_source": metadata_payload.get("showcase_source") or "demo_synthetic",
+                    "source_kind": metadata_payload.get("source_kind") or "demo_showcase",
+                    "is_synthetic": True,
+                    "citation_source_type": "public_policy_demo",
+                    "citation_disclaimer": metadata_payload.get("citation_disclaimer")
+                    or "内置演示样例，不代表真实官方政策，不可作为官方政策依据引用。",
+                }
+            )
     return chunks
+
+
+def _is_demo_showcase_document(crawled: CrawledDocument) -> bool:
+    source_kind = str(crawled.metadata.get("source_kind") or "").strip().lower()
+    showcase_source = str(crawled.metadata.get("showcase_source") or "").strip().lower()
+    citation_source_type = str(crawled.metadata.get("citation_source_type") or "").strip().lower()
+    return (
+        source_kind in {"demo_showcase", "showcase_demo"}
+        or showcase_source in {"demo_synthetic", "built_in_showcase"}
+        or citation_source_type == "public_policy_demo"
+    )
 
 
 def _scrapy_settings_metadata(request: PolicyCrawlRequest) -> dict[str, Any]:

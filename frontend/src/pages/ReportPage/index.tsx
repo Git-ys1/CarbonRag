@@ -60,18 +60,21 @@ const reportTypeLabelMap: Record<ReportType, string> = {
 
 const sourceTypeLabelMap = {
     public_policy: "公共政策",
+    public_policy_demo: "演示样例",
     private_sample: "知识条目",
     carbon_factor: "排放因子",
 } as const;
 
 const sourceTypeColorMap = {
     public_policy: "blue",
+    public_policy_demo: "orange",
     private_sample: "magenta",
     carbon_factor: "gold",
 } as const;
 
 const emptyReportSourceSummary: ReportSourceSummary = {
     public_policy_count: 0,
+    public_policy_demo_count: 0,
     private_sample_count: 0,
     carbon_factor_count: 0,
     total_citation_count: 0,
@@ -463,12 +466,18 @@ export function ReportPage() {
                                     {
                                         key: "citations",
                                         label: `查看依据（${currentSummary.total_citation_count}）`,
-                                        children: groupedCitations.public_policy.length || groupedCitations.private_sample.length || groupedCitations.carbon_factor.length ? (
+                                        children: groupedCitations.public_policy.length || groupedCitations.public_policy_demo.length || groupedCitations.private_sample.length || groupedCitations.carbon_factor.length ? (
                                             <div className="chat-citation-groups">
                                                 {groupedCitations.public_policy.length ? (
                                                     <ReportCitationGroup
                                                         title="政策依据"
                                                         citations={groupedCitations.public_policy}
+                                                    />
+                                                ) : null}
+                                                {groupedCitations.public_policy_demo.length ? (
+                                                    <ReportCitationGroup
+                                                        title="演示样例依据"
+                                                        citations={groupedCitations.public_policy_demo}
                                                     />
                                                 ) : null}
                                                 {groupedCitations.private_sample.length ? (
@@ -533,10 +542,12 @@ function ReportCitationGroup({ title, citations }: ReportCitationGroupProps) {
                             >
                                 {citation.snippet}
                             </Typography.Paragraph>
-                            {citation.source_url ? (
+                            {citation.source_url?.startsWith("http") ? (
                                 <Typography.Link href={citation.source_url} target="_blank" rel="noreferrer">
                                     查看来源
                                 </Typography.Link>
+                            ) : citation.source_type === "public_policy_demo" ? (
+                                <Typography.Text type="secondary">内置演示样例，不代表真实官方政策。</Typography.Text>
                             ) : null}
                         </div>
                     </List.Item>
@@ -652,6 +663,7 @@ function buildReportReadiness(
 function groupReportCitations(citations: ReportCitation[]) {
     return {
         public_policy: citations.filter((item) => item.source_type === "public_policy"),
+        public_policy_demo: citations.filter((item) => item.source_type === "public_policy_demo"),
         private_sample: citations.filter((item) => item.source_type === "private_sample"),
         carbon_factor: citations.filter((item) => item.source_type === "carbon_factor"),
     };

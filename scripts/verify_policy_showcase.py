@@ -72,7 +72,10 @@ def main() -> int:
             run_payload = run_response.json()
             assert run_payload["indexed"] is True, run_payload
             assert run_payload["item"]["source_type"] == "public_policy_web", run_payload
+            assert run_payload["item"]["visibility"] == "demo", run_payload
+            assert "gov.cn" not in run_payload["source"]["source_url"], run_payload
             assert run_payload["chunks"], run_payload
+            assert run_payload["chunks"][0]["source_type"] == "public_policy_demo", run_payload
             checks.append("policy ingest run")
 
             status_response = client.get(f"/api/v1/admin/policy-sources/{source['source_id']}/status")
@@ -84,8 +87,9 @@ def main() -> int:
             chunks_response = client.get(f"/api/v1/admin/policy-sources/{source['source_id']}/chunks")
             assert chunks_response.status_code == 200, chunks_response.text
             chunks_payload = chunks_response.json()
-            assert chunks_payload and chunks_payload[0]["source_type"] == "public_policy", chunks_payload
-            checks.append("public policy chunks")
+            assert chunks_payload and chunks_payload[0]["source_type"] == "public_policy_demo", chunks_payload
+            assert chunks_payload[0]["metadata"]["citation_disclaimer"], chunks_payload
+            checks.append("showcase demo chunks")
 
             preview_response = client.get(
                 f"/api/v1/admin/policy-sources/{source['source_id']}/retrieval-preview",
@@ -94,6 +98,8 @@ def main() -> int:
             assert preview_response.status_code == 200, preview_response.text
             preview_payload = preview_response.json()
             assert any(hit["matched_source"] for hit in preview_payload["hits"]), preview_payload
+            assert any(hit["source_type"] == "public_policy_demo" for hit in preview_payload["hits"]), preview_payload
+            assert all(not (hit["matched_source"] and hit["source_type"] == "public_policy") for hit in preview_payload["hits"]), preview_payload
             checks.append("retrieval preview")
 
             item_count = len(knowledge_service.list_admin_items(source_type="public_policy_web"))

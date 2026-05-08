@@ -235,7 +235,7 @@ class RagEngineService:
                 "retrieval_strategy": params.retrieval_strategy,
             },
         )
-        public_chunk_count, private_chunk_count = self._count_chunk_scopes(chunks)
+        public_chunk_count, public_policy_demo_chunk_count, private_chunk_count = self._count_chunk_scopes(chunks)
         graph_metadata = (
             self._build_graph_metadata(chunks=chunks, question=params.question, graph_mode=params.graph_mode)
             if params.graph_mode != "off"
@@ -272,6 +272,7 @@ class RagEngineService:
             fallback_reason=fallback_reason,
             latency_ms=trace.latency_ms,
             public_chunk_count=public_chunk_count,
+            public_policy_demo_chunk_count=public_policy_demo_chunk_count,
             private_chunk_count=private_chunk_count,
             graph_entities=graph_metadata["entities"],
             graph_relations=graph_metadata["relations"],
@@ -514,10 +515,11 @@ class RagEngineService:
         )
 
     @staticmethod
-    def _count_chunk_scopes(chunks: list[RagEvidenceChunk]) -> tuple[int, int]:
+    def _count_chunk_scopes(chunks: list[RagEvidenceChunk]) -> tuple[int, int, int]:
         public_count = sum(1 for chunk in chunks if chunk.source_type == "public_policy")
+        public_demo_count = sum(1 for chunk in chunks if chunk.source_type == "public_policy_demo")
         private_count = sum(1 for chunk in chunks if chunk.source_type in {"private_sample", "private_upload"})
-        return public_count, private_count
+        return public_count, public_demo_count, private_count
 
     def _vector_store_health(self) -> VectorStoreHealth:
         try:

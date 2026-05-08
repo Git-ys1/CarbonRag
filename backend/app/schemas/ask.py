@@ -7,7 +7,7 @@ from app.settings.schemas import LocalProviderOverride
 KnowledgeScope = Literal["public", "private_sample", "mixed"]
 AskStatus = Literal["ok", "provider_error", "invalid_input"]
 MessageStatus = Literal["pending", "thinking", "streaming", "done", "error", "ok", "provider_error", "invalid_input"]
-CitationSourceType = Literal["public_policy", "private_sample", "private_upload"]
+CitationSourceType = Literal["public_policy", "public_policy_demo", "private_sample", "private_upload"]
 
 
 class AskCitation(BaseModel):
@@ -25,6 +25,7 @@ class AskCitation(BaseModel):
 class AskSourceSummary(BaseModel):
     knowledge_scope: KnowledgeScope
     public_policy_count: int = 0
+    public_policy_demo_count: int = 0
     private_sample_count: int = 0
     private_upload_count: int = 0
     total_citation_count: int = 0

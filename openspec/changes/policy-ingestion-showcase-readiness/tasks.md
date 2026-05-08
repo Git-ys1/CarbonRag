@@ -1,6 +1,6 @@
 ## 1. Backend Showcase Source
 
-- [x] 1.1 Add a curated built-in official-policy source fixture with realistic HTML, URL, title, document number, publication date, source label, and carbon-policy terms.
+- [x] 1.1 Add a curated built-in synthetic showcase source fixture with realistic HTML, title, demo document number, publication date, source label, and carbon-policy terms.
 - [x] 1.2 Add reusable backend service methods for listing showcase policy sources, running/refreshing the curated source through `crawl_ingest`, and reading item/task/workflow/chunk status.
 - [x] 1.3 Add admin-gated v1 API endpoints for policy source list, run/refresh, status, chunks, and retrieval preview.
 - [x] 1.4 Ensure repeated runs refresh the same `public_policy_web` item and do not create unbounded duplicates.
@@ -10,8 +10,8 @@
 - [x] 2.1 Add typed frontend API functions and response types for policy source list, run/refresh, status, chunks, and retrieval preview.
 - [x] 2.2 Integrate policy ingestion controls/status into an existing admin or knowledge management surface instead of a standalone demo page.
 - [x] 2.3 Show the ingestion pipeline as product state: source, task status, workflow status, extracted metadata, chunks, and source URL.
-- [x] 2.4 Add a retrieval validation path from the existing RAG surface so the indexed policy can be queried and shown as `public_policy` evidence.
-- [x] 2.5 Make the UI clear that the curated source is built-in/offline and live crawler scheduling is not enabled yet.
+- [x] 2.4 Add a retrieval validation path from the existing RAG surface so the indexed showcase source can be queried and shown as `public_policy_demo` evidence.
+- [x] 2.5 Make the UI clear that the curated source is built-in/offline, synthetic, non-official, and live crawler scheduling is not enabled yet.
 
 ## 3. Verification
 

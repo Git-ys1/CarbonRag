@@ -8,7 +8,7 @@ from app.knowledge.policy_ingestion import CrawledDocument
 
 
 SHOWCASE_POLICY_SOURCE_ID = "low-carbon-campus-action"
-SHOWCASE_POLICY_QUERY = "低碳韧性校园 碳核算 节能改造"
+SHOWCASE_POLICY_QUERY = "低碳韧性校园建设如何开展碳核算和节能改造？"
 
 
 class ShowcasePolicySource(BaseModel):
@@ -35,7 +35,11 @@ class ShowcasePolicySource(BaseModel):
             metadata={
                 "source_id": self.source_id,
                 "source_label": self.source_label,
-                "showcase_source": "built_in_offline",
+                "showcase_source": "demo_synthetic",
+                "source_kind": "demo_showcase",
+                "is_synthetic": "true",
+                "citation_source_type": "public_policy_demo",
+                "citation_disclaimer": "内置演示样例，不代表真实官方政策，不可作为官方政策依据引用。",
                 **self.metadata,
             },
         )
@@ -44,18 +48,23 @@ class ShowcasePolicySource(BaseModel):
 BUILT_IN_POLICY_SHOWCASE_SOURCES: tuple[ShowcasePolicySource, ...] = (
     ShowcasePolicySource(
         source_id=SHOWCASE_POLICY_SOURCE_ID,
-        title="低碳韧性校园建设行动方案",
-        source_url="https://www.gov.cn/zhengce/content/showcase-low-carbon-campus.htm",
-        source_label="中国政府网",
-        description="内置离线官方政策样例，用于展示政策采集、解析、治理、分块和检索闭环。",
+        title="CarbonRag 低碳韧性校园建设演示样例",
+        source_url="carbonrag://showcase/policy/low-carbon-campus-action",
+        source_label="CarbonRag 内置演示样例",
+        description="内置离线合成样例，用于展示采集、解析、治理、分块和检索闭环；不是官方政策文件。",
         default_query=SHOWCASE_POLICY_QUERY,
         metadata={
-            "issuing_authority": "国务院办公厅",
-            "document_number": "国办发〔2026〕8号",
+            "showcase_source": "demo_synthetic",
+            "source_kind": "demo_showcase",
+            "is_synthetic": "true",
+            "citation_source_type": "public_policy_demo",
+            "citation_disclaimer": "内置演示样例，不代表真实官方政策，不可作为官方政策依据引用。",
+            "issuing_authority": "CarbonRag Demo",
+            "document_number": "DEMO-SHOWCASE-2026-001",
             "publication_date": "2026-05-01",
             "effective_date": "2026-05-01",
-            "expiry_status": "active",
-            "region": "national",
+            "expiry_status": "unknown",
+            "region": "demo",
             "industry": "building",
         },
         content="""
@@ -63,19 +72,18 @@ BUILT_IN_POLICY_SHOWCASE_SOURCES: tuple[ShowcasePolicySource, ...] = (
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
-  <title>低碳韧性校园建设行动方案</title>
+  <title>CarbonRag 低碳韧性校园建设演示样例</title>
 </head>
 <body>
-  <nav>当前位置：政策公开 &gt; 国务院办公厅</nav>
   <main>
-    <h1>低碳韧性校园建设行动方案</h1>
-    <p>发文机关：国务院办公厅</p>
-    <p>文号：国办发〔2026〕8号</p>
+    <h1>CarbonRag 低碳韧性校园建设演示样例</h1>
+    <p>来源：CarbonRag 内置演示样例</p>
+    <p>样例编号：DEMO-SHOWCASE-2026-001</p>
     <p>发布日期：2026年5月1日</p>
-    <p>施行日期：2026年5月1日</p>
+    <p>说明：本文档为合成演示资料，不代表真实官方政策文件，不可作为官方政策依据引用。</p>
     <p>
-      为落实碳达峰碳中和工作部署，推动公共机构和教育领域绿色低碳转型，
-      现就低碳韧性校园建设提出以下行动方案。
+      为展示 CarbonRag 政策知识三段式摄取能力，本样例围绕低碳韧性校园建设，
+      覆盖碳核算、能源计量、节能改造、绿色采购和数据治理等演示主题。
     </p>
     <p>
       第一条 推动低碳韧性校园建设，完善校园碳核算、能源计量和节能改造机制，
@@ -86,11 +94,11 @@ BUILT_IN_POLICY_SHOWCASE_SOURCES: tuple[ShowcasePolicySource, ...] = (
       可再生能源应用和生态文明实践纳入校园管理评价。
     </p>
     <p>
-      第三条 鼓励地方主管部门建立政策评估机制，定期公开节能降碳成效，
+      第三条 鼓励管理部门建立演示评估机制，定期公开节能降碳成效，
       对能耗异常、数据缺失和改造进度滞后的单位开展重点帮扶。
     </p>
   </main>
-  <footer>版权所有：中国政府网</footer>
+  <footer>CarbonRag 内置演示样例，不代表任何官方发布主体。</footer>
 </body>
 </html>
 """.strip(),

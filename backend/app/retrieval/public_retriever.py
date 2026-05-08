@@ -101,7 +101,7 @@ def _runtime_policy_chunk_to_retrieved_chunk(chunk: KnowledgeChunk) -> Retrieved
         doc_id=chunk.knowledge_item_id,
         knowledge_item_id=chunk.knowledge_item_id,
         title=chunk.title,
-        source_type="public_policy",
+        source_type=_runtime_chunk_source_type(chunk),
         source=chunk.source,
         source_url=chunk.source_url,
         issued_at=chunk.issued_at,
@@ -121,3 +121,9 @@ def _optional_str(value: Any) -> str | None:
         return None
     normalized = str(value).strip()
     return normalized or None
+
+
+def _runtime_chunk_source_type(chunk: KnowledgeChunk):
+    if chunk.source_type == "public_policy_demo" or chunk.visibility == "demo":
+        return "public_policy_demo"
+    return "public_policy"

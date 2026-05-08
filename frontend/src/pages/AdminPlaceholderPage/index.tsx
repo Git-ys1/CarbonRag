@@ -618,13 +618,13 @@ export function AdminPlaceholderPage() {
                             <Alert
                                 showIcon
                                 type="info"
-                                message="内置官方政策源演示链路"
-                                description="该入口运行项目内置离线政策源，走真实 crawl_ingest、policy_ingest、分块和公共政策 BM25 检索；不启用线上爬虫调度。"
+                                message="内置政策摄取展示链路"
+                                description="该入口运行项目内置离线合成样例，走真实 crawl_ingest、policy_ingest、分块和 BM25 检索；样例会标记为演示来源，不作为官方政策依据引用，也不启用线上爬虫调度。"
                             />
                             {selectedPolicySource ? (
                                 <>
                                     <Descriptions column={2} size="small" bordered>
-                                        <Descriptions.Item label="政策源">
+                                        <Descriptions.Item label="展示源">
                                             {selectedPolicySource.title}
                                         </Descriptions.Item>
                                         <Descriptions.Item label="来源">
@@ -637,9 +637,13 @@ export function AdminPlaceholderPage() {
                                             {formatMetadataValue(selectedPolicySource.metadata.publication_date)}
                                         </Descriptions.Item>
                                         <Descriptions.Item label="原文链接" span={2}>
-                                            <Typography.Link href={selectedPolicySource.source_url} target="_blank" rel="noreferrer">
-                                                {selectedPolicySource.source_url}
-                                            </Typography.Link>
+                                            {selectedPolicySource.source_url.startsWith("http") ? (
+                                                <Typography.Link href={selectedPolicySource.source_url} target="_blank" rel="noreferrer">
+                                                    {selectedPolicySource.source_url}
+                                                </Typography.Link>
+                                            ) : (
+                                                <Typography.Text code>{selectedPolicySource.source_url}</Typography.Text>
+                                            )}
                                         </Descriptions.Item>
                                         <Descriptions.Item label="默认检索问题" span={2}>
                                             {selectedPolicySource.default_query}
@@ -667,7 +671,7 @@ export function AdminPlaceholderPage() {
                                             loading={runningPolicySourceId === selectedPolicySource.source_id}
                                             onClick={() => void handleRunPolicyShowcase(selectedPolicySource.source_id)}
                                         >
-                                            运行/刷新政策摄取
+                                            运行/刷新摄取展示
                                         </Button>
                                         <Button
                                             icon={<ReloadOutlined />}
@@ -695,7 +699,7 @@ export function AdminPlaceholderPage() {
                                     />
                                     <List
                                         size="small"
-                                        header={<Typography.Text strong>政策分块</Typography.Text>}
+                                        header={<Typography.Text strong>摄取分块</Typography.Text>}
                                         dataSource={policyChunks.slice(0, 3)}
                                         locale={{ emptyText: "暂无分块，点击运行摄取后生成。" }}
                                         renderItem={(chunk) => (
@@ -703,7 +707,7 @@ export function AdminPlaceholderPage() {
                                                 <Space direction="vertical" size={4} style={{ width: "100%" }}>
                                                     <Space size={8} wrap>
                                                         <Typography.Text code>{chunk.chunk_id}</Typography.Text>
-                                                        <Tag>{chunk.source_type}</Tag>
+                                                        <Tag>{sourceTypeLabelMap[chunk.source_type] ?? chunk.source_type}</Tag>
                                                         {chunk.issued_at ? <Tag>{chunk.issued_at}</Tag> : null}
                                                     </Space>
                                                     <Typography.Paragraph ellipsis={{ rows: 2 }}>
@@ -721,15 +725,15 @@ export function AdminPlaceholderPage() {
                                             </Typography.Text>
                                         }
                                         dataSource={policyRetrievalHits.slice(0, 5)}
-                                        locale={{ emptyText: "暂无命中，运行摄取后可看到 public_policy 证据。" }}
+                                        locale={{ emptyText: "暂无命中，运行摄取后可看到演示样例证据。" }}
                                         renderItem={(hit) => (
                                             <List.Item>
                                                 <Space direction="vertical" size={4} style={{ width: "100%" }}>
                                                     <Space size={8} wrap>
                                                         <Tag color={hit.matched_source ? "green" : "default"}>
-                                                            {hit.matched_source ? "本次政策源" : "公共政策"}
+                                                            {hit.matched_source ? "本次展示源" : "公共政策"}
                                                         </Tag>
-                                                        <Tag>{hit.source_type}</Tag>
+                                                        <Tag>{sourceTypeLabelMap[hit.source_type] ?? hit.source_type}</Tag>
                                                         <Typography.Text type="secondary">score {hit.score.toFixed(3)}</Typography.Text>
                                                     </Space>
                                                     <Typography.Text strong>{hit.title}</Typography.Text>
@@ -897,6 +901,10 @@ const sourceTypeLabelMap: Record<string, string> = {
     private_sample_repo: "共享知识条目",
     knowledge_item: "知识条目",
     public_policy_web: "官方政策网页",
+    public_policy: "公共政策",
+    public_policy_demo: "演示样例",
+    private_sample: "私有知识",
+    private_upload: "个人上传",
 };
 
 const taskTypeLabelMap: Record<string, string> = {

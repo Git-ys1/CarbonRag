@@ -738,6 +738,7 @@ export function AskPage() {
                         <Space size={8} wrap>
                             <Tag color="green">{currentSourceSummary.total_citation_count} 条引用</Tag>
                             {currentSourceSummary.public_policy_count > 0 ? <Tag color="blue">政策 {currentSourceSummary.public_policy_count}</Tag> : null}
+                            {(currentSourceSummary.public_policy_demo_count ?? 0) > 0 ? <Tag color="orange">演示样例 {currentSourceSummary.public_policy_demo_count ?? 0}</Tag> : null}
                             {currentSourceSummary.private_sample_count > 0 ? <Tag color="magenta">知识条目 {currentSourceSummary.private_sample_count}</Tag> : null}
                             {(currentSourceSummary.private_upload_count ?? 0) > 0 ? <Tag color="green">个人上传 {currentSourceSummary.private_upload_count ?? 0}</Tag> : null}
                         </Space>
@@ -996,19 +997,19 @@ function CitationGroup({ citations }: CitationGroupProps) {
                         <div className="chat-citation-card">
                             <Space size={8} wrap>
                                 <Typography.Text strong>{citation.title}</Typography.Text>
-                                <Tag color={citation.source_type === "public_policy" ? "blue" : citation.source_type === "private_upload" ? "green" : "magenta"}>
-                                    {citation.source_type === "public_policy" ? "公共政策" : citation.source_type === "private_upload" ? "个人上传" : "知识条目"}
-                                </Tag>
+                                <Tag color={citationSourceColor(citation.source_type)}>{citationSourceLabel(citation.source_type)}</Tag>
                                 <Tag>{citation.source}</Tag>
                                 <Typography.Text type="secondary">{citation.chunk_id}</Typography.Text>
                             </Space>
                             <Typography.Paragraph className="chat-citation-card__snippet" ellipsis={{ rows: 3, expandable: "collapsible", symbol: "展开" }}>
                                 {citation.snippet}
                             </Typography.Paragraph>
-                            {citation.source_url ? (
+                            {citation.source_url?.startsWith("http") ? (
                                 <Typography.Link href={citation.source_url} target="_blank" rel="noreferrer">
                                     <LinkOutlined /> 查看来源
                                 </Typography.Link>
+                            ) : citation.source_type === "public_policy_demo" ? (
+                                <Typography.Text type="secondary">该条依据来自内置演示样例，不代表真实官方政策。</Typography.Text>
                             ) : citation.source_type === "private_upload" ? (
                                 <Typography.Text type="secondary">该条依据来自当前用户已入库的个人上传文档。</Typography.Text>
                             ) : (
@@ -1020,6 +1021,32 @@ function CitationGroup({ citations }: CitationGroupProps) {
             />
         </div>
     );
+}
+
+function citationSourceLabel(sourceType: AskCitation["source_type"]) {
+    if (sourceType === "public_policy") {
+        return "公共政策";
+    }
+    if (sourceType === "public_policy_demo") {
+        return "演示样例";
+    }
+    if (sourceType === "private_upload") {
+        return "个人上传";
+    }
+    return "知识条目";
+}
+
+function citationSourceColor(sourceType: AskCitation["source_type"]) {
+    if (sourceType === "public_policy") {
+        return "blue";
+    }
+    if (sourceType === "public_policy_demo") {
+        return "orange";
+    }
+    if (sourceType === "private_upload") {
+        return "green";
+    }
+    return "magenta";
 }
 
 const statusColorMap = {
@@ -1104,6 +1131,7 @@ function resolvePreferredCitationMessageId(detail: SessionDetail | null): string
 function groupCitationsBySource(citations: AskCitation[]) {
     return {
         public_policy: citations.filter((item) => item.source_type === "public_policy"),
+        public_policy_demo: citations.filter((item) => item.source_type === "public_policy_demo"),
         private_sample: citations.filter((item) => item.source_type === "private_sample"),
         private_upload: citations.filter((item) => item.source_type === "private_upload"),
     };
@@ -1111,14 +1139,16 @@ function groupCitationsBySource(citations: AskCitation[]) {
 
 function summarizeCitations(citations: AskCitation[]): AskSourceSummary {
     const groups = groupCitationsBySource(citations);
+    const publicEvidenceCount = groups.public_policy.length + groups.public_policy_demo.length;
     return {
         knowledge_scope:
-            groups.public_policy.length && (groups.private_sample.length || groups.private_upload.length)
+            publicEvidenceCount && (groups.private_sample.length || groups.private_upload.length)
                 ? "mixed"
                 : groups.private_sample.length || groups.private_upload.length
                     ? "private_sample"
                     : "public",
         public_policy_count: groups.public_policy.length,
+        public_policy_demo_count: groups.public_policy_demo.length,
         private_sample_count: groups.private_sample.length,
         private_upload_count: groups.private_upload.length,
         total_citation_count: citations.length,
@@ -1132,6 +1162,7 @@ function buildPanelSourceSummary(citations: AskCitation[], fallback?: AskSourceS
     return fallback ?? {
         knowledge_scope: "public",
         public_policy_count: 0,
+        public_policy_demo_count: 0,
         private_sample_count: 0,
         private_upload_count: 0,
         total_citation_count: 0,
@@ -1150,6 +1181,18 @@ function buildCitationCollapseItems(groups: ReturnType<typeof groupCitationsBySo
                     </Space>
                 ),
                 children: <CitationGroup citations={groups.public_policy} />,
+            }
+            : null,
+        groups.public_policy_demo.length
+            ? {
+                key: "public_policy_demo",
+                label: (
+                    <Space size={8} wrap>
+                        <Typography.Text strong>演示样例依据</Typography.Text>
+                        <Tag color="orange">{groups.public_policy_demo.length}</Tag>
+                    </Space>
+                ),
+                children: <CitationGroup citations={groups.public_policy_demo} />,
             }
             : null,
         groups.private_sample.length
@@ -1221,6 +1264,9 @@ function buildAssistantEvidenceSummary(sourceSummary: AskSourceSummary) {
     const parts: string[] = [];
     if (sourceSummary.public_policy_count > 0) {
         parts.push(`政策 ${sourceSummary.public_policy_count}`);
+    }
+    if ((sourceSummary.public_policy_demo_count ?? 0) > 0) {
+        parts.push(`演示样例 ${sourceSummary.public_policy_demo_count ?? 0}`);
     }
     if (sourceSummary.private_sample_count > 0) {
         parts.push(`知识条目 ${sourceSummary.private_sample_count}`);

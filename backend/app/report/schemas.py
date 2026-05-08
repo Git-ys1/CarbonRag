@@ -8,7 +8,7 @@ ReportType = Literal["policy_summary", "mixed_analysis", "carbon_summary"]
 ReportOutputFormat = Literal["markdown"]
 ReportStatus = Literal["ok"]
 ReportSourceType = Literal["message", "citation", "carbon_result"]
-ReportCitationSourceType = Literal["public_policy", "private_sample", "carbon_factor"]
+ReportCitationSourceType = Literal["public_policy", "public_policy_demo", "private_sample", "carbon_factor"]
 
 
 class ReportCitation(BaseModel):
@@ -23,6 +23,7 @@ class ReportCitation(BaseModel):
 
 class ReportSourceSummary(BaseModel):
     public_policy_count: int = 0
+    public_policy_demo_count: int = 0
     private_sample_count: int = 0
     carbon_factor_count: int = 0
     total_citation_count: int = 0

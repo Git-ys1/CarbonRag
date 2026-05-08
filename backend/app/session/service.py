@@ -185,6 +185,7 @@ class SessionService:
         effective_source_summary = source_summary or AskSourceSummary(
             knowledge_scope=knowledge_scope,
             public_policy_count=sum(1 for citation in citations if citation.source_type == "public_policy"),
+            public_policy_demo_count=sum(1 for citation in citations if citation.source_type == "public_policy_demo"),
             private_sample_count=sum(1 for citation in citations if citation.source_type == "private_sample"),
             private_upload_count=sum(1 for citation in citations if citation.source_type == "private_upload"),
             total_citation_count=len(citations),

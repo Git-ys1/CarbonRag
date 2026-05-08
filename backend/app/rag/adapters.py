@@ -93,6 +93,7 @@ def retrieval_trace_from_components(
             "mode": metadata.mode,
             "provider_metadata_keys": sorted(provider_metadata.keys()),
             "public_chunk_count": metadata.public_chunk_count,
+            "public_policy_demo_chunk_count": metadata.public_policy_demo_chunk_count,
             "private_chunk_count": metadata.private_chunk_count,
         }
     )

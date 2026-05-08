@@ -193,6 +193,8 @@ class AdminService:
             crawled_document=source.to_crawled_document(),
             requested_by_user_id=requested_by_user_id,
         )
+        # The admin request thread only processes the small built-in showcase fixture.
+        # Live crawling or large policy refreshes must use the queued task runner path.
         knowledge_service.run_queued_tasks()
         self._clear_retrieval_caches("public_policy")
         return self.get_policy_showcase_status(source_id=source_id)

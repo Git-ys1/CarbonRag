@@ -186,12 +186,17 @@ class KnowledgeService:
                 }
             )
         self.store.upsert_item(item=item)
+        task_summary = (
+            "政策展示样例已进入知识库入库流程。"
+            if item.visibility == "demo"
+            else "官方政策采集结果已进入知识库入库流程。"
+        )
         return self._enqueue_item_task(
             knowledge_item_id=item.knowledge_item_id,
             owner_user_id=None,
             requested_by_user_id=requested_by_user_id,
             task_type="crawl_ingest",
-            summary="官方政策采集结果已进入知识库入库流程。",
+            summary=task_summary,
         )
 
     def list_visible_items(

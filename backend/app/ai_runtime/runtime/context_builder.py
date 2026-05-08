@@ -35,6 +35,7 @@ def build_context_bundle(
         attached_knowledge_item_ids = request.payload.get("attached_knowledge_item_ids", [])
         retrieval_hits = _extract_hits(tool_results)
         public_hits = [hit for hit in retrieval_hits if hit.get("source_type") == "public_policy"]
+        demo_policy_hits = [hit for hit in retrieval_hits if hit.get("source_type") == "public_policy_demo"]
         private_hits = [
             hit for hit in retrieval_hits if hit.get("source_type") in {"private_sample", "private_upload"}
         ]
@@ -93,6 +94,17 @@ def build_context_bundle(
                     [
                         f"[policy-{index}] 标题：{hit['title']}",
                         f"发布机构：{hit['source']}",
+                        f"片段标识：{hit['chunk_id']}",
+                        f"片段内容：{hit['snippet']}",
+                    ]
+                )
+        if demo_policy_hits:
+            evidence_lines.append("当前已检索到以下内置演示样例片段（非官方政策依据）：")
+            for index, hit in enumerate(demo_policy_hits, start=1):
+                evidence_lines.extend(
+                    [
+                        f"[policy-demo-{index}] 标题：{hit['title']}",
+                        f"来源：{hit['source']}（演示样例，不代表真实官方政策）",
                         f"片段标识：{hit['chunk_id']}",
                         f"片段内容：{hit['snippet']}",
                     ]
@@ -162,6 +174,12 @@ def build_context_bundle(
                 "source": "local_public_policy_corpus",
                 "hit_count": len(public_hits),
                 "hits": public_hits,
+            },
+            "policy_demo_context": {
+                "ready": bool(demo_policy_hits),
+                "source": "built_in_showcase_fixture",
+                "hit_count": len(demo_policy_hits),
+                "hits": demo_policy_hits,
             },
             "enterprise_context": {
                 "ready": True,

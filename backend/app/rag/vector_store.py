@@ -763,7 +763,7 @@ def _metadata_from_row(value: Any) -> dict[str, Any]:
 
 def _normalize_source_type(value: Any) -> str:
     normalized = str(value or "").strip()
-    if normalized in {"public_policy", "private_sample", "private_upload"}:
+    if normalized in {"public_policy", "public_policy_demo", "private_sample", "private_upload"}:
         return normalized
     return "private_sample"
 

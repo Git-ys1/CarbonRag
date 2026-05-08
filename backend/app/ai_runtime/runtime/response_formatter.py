@@ -32,11 +32,13 @@ def _extract_citations(tool_results: list[ToolResult]) -> list[dict]:
 
 def _build_source_summary(*, knowledge_scope: str, citations: list[dict]) -> dict:
     public_policy_count = sum(1 for citation in citations if citation.get("source_type") == "public_policy")
+    public_policy_demo_count = sum(1 for citation in citations if citation.get("source_type") == "public_policy_demo")
     private_sample_count = sum(1 for citation in citations if citation.get("source_type") == "private_sample")
     private_upload_count = sum(1 for citation in citations if citation.get("source_type") == "private_upload")
     return {
         "knowledge_scope": knowledge_scope,
         "public_policy_count": public_policy_count,
+        "public_policy_demo_count": public_policy_demo_count,
         "private_sample_count": private_sample_count,
         "private_upload_count": private_upload_count,
         "total_citation_count": len(citations),
@@ -81,6 +83,7 @@ def format_runtime_result(
                 "compacted_message_count": context_bundle.get("session_state", {}).get("compacted_message_count"),
                 "summary_updated_at": context_bundle.get("session_state", {}).get("summary_updated_at"),
                 "grounded_by_policy": source_summary["public_policy_count"] > 0,
+                "grounded_by_demo_showcase": source_summary["public_policy_demo_count"] > 0,
                 "grounded_by_private_sample": source_summary["private_sample_count"] > 0,
                 "retrieval_hit_count": len(citations),
                 "citation_count": len(citations),

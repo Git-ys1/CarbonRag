@@ -148,3 +148,36 @@ def test_session_service_begin_and_finalize_exchange_updates_placeholder(tmp_pat
     assert refreshed.messages[-1].thinking_content == "先梳理当前会话上下文，再生成最终回答。"
     assert refreshed.source_summary is not None
     assert refreshed.source_summary.total_citation_count == 1
+
+
+def test_session_source_summary_counts_policy_demo_separately(tmp_path) -> None:
+    service = build_session_service(tmp_path)
+    owner_user_id = create_test_user_id(tmp_path / "carbonrag.sqlite3", prefix="session-demo-summary")
+    session = service.create_session(owner_user_id=owner_user_id)
+
+    service.record_exchange(
+        owner_user_id=owner_user_id,
+        session_id=session.session_id,
+        user_content="验证演示样例来源",
+        assistant_content="仅使用演示样例回答。",
+        assistant_status="ok",
+        trace_id="trace-demo-001",
+        citations=[
+            AskCitation(
+                doc_id="policy-web-demo",
+                title="CarbonRag 低碳韧性校园建设演示样例",
+                source_type="public_policy_demo",
+                source="CarbonRag 内置演示样例",
+                source_url="carbonrag://showcase/policy/low-carbon-campus-action",
+                snippet="演示样例片段",
+                chunk_id="policy-web-demo_chunk_01",
+            )
+        ],
+    )
+
+    refreshed = service.get_session(owner_user_id=owner_user_id, session_id=session.session_id)
+    assert refreshed is not None
+    assert refreshed.source_summary is not None
+    assert refreshed.source_summary.public_policy_count == 0
+    assert refreshed.source_summary.public_policy_demo_count == 1
+    assert refreshed.source_summary.total_citation_count == 1

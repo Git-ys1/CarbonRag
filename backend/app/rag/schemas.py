@@ -121,6 +121,7 @@ class RagRetrievalMetadata(BaseModel):
     fallback_reason: str | None = None
     latency_ms: float | None = None
     public_chunk_count: int | None = None
+    public_policy_demo_chunk_count: int | None = None
     private_chunk_count: int | None = None
     graph_entities: list[GraphEntity] = Field(default_factory=list)
     graph_relations: list[GraphRelation] = Field(default_factory=list)

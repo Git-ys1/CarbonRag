@@ -2,7 +2,7 @@ import type { CarbonCalculationSummary } from "./carbon";
 import type { LocalProviderOverride } from "./settings";
 
 export type ReportType = "policy_summary" | "mixed_analysis" | "carbon_summary";
-export type ReportCitationSourceType = "public_policy" | "private_sample" | "carbon_factor";
+export type ReportCitationSourceType = "public_policy" | "public_policy_demo" | "private_sample" | "carbon_factor";
 export type ReportSourceType = "message" | "citation" | "carbon_result";
 
 export interface ReportCitation {
@@ -17,6 +17,7 @@ export interface ReportCitation {
 
 export interface ReportSourceSummary {
     public_policy_count: number;
+    public_policy_demo_count?: number;
     private_sample_count: number;
     carbon_factor_count: number;
     total_citation_count: number;

@@ -10,7 +10,7 @@ The remaining product gap is not a lack of core logic; it is that a reviewer can
 
 **Goals:**
 - Make policy ingestion demonstrable from the running product without requiring live network crawling.
-- Use real `public_policy_web`, `crawl_ingest`, `policy_ingest`, chunk indexing, and public retrieval.
+- Use real `public_policy_web`, `crawl_ingest`, `policy_ingest`, chunk indexing, and public retrieval while marking the built-in sample as demo/showcase evidence.
 - Let an admin start a curated policy source seed/refresh from an existing app surface.
 - Let the user see item/task/workflow/chunk/retrieval evidence without reading logs.
 - Keep the path repeatable and idempotent for rehearsals.
@@ -24,13 +24,15 @@ The remaining product gap is not a lack of core logic; it is that a reviewer can
 
 ## Decisions
 
-### Decision 1: Build A Showcase-Ready Source, Not A Separate Demo Island
+### Decision 1: Build A Showcase-Ready Synthetic Source, Not A Separate Demo Island
 
-The first演示级 implementation SHALL add a curated built-in official-policy source to the policy ingestion controls. It is a real `public_policy_web` item after ingestion, not an isolated demo object.
+The first演示级 implementation SHALL add a curated built-in synthetic showcase source to the policy ingestion controls. It is a real `public_policy_web` item after ingestion, not an isolated demo object, but it MUST use demo visibility and retrieval source type `public_policy_demo`.
+
+The built-in showcase source MUST NOT use a fake official URL, official agency, fake official document number, or official-looking copyright. Any citations, references, retrieval preview hits, or source summary counts from this source MUST clearly identify it as demo/showcase material rather than official public policy evidence.
 
 Rationale:
 - The user wants the project itself to be demonstrable.
-- A seeded official-style source makes presentations deterministic.
+- A seeded synthetic source makes presentations deterministic without polluting official policy evidence.
 - The same surface can later expand into real source catalogs.
 
 ### Decision 2: Reuse Existing Admin/Knowledge And RAG Lab Surfaces
@@ -60,7 +62,8 @@ Rationale:
 
 ## Risks / Trade-offs
 
-- [Risk] A fixture-backed source may be mistaken for live crawling. → Label it as a curated built-in official-policy seed and keep live crawler controls disabled unless explicitly configured in a later change.
+- [Risk] A fixture-backed source may be mistaken for live crawling. → Label it as a curated built-in synthetic showcase seed and keep live crawler controls disabled unless explicitly configured in a later change.
+- [Risk] A synthetic fixture may be mistaken for official policy. → Use demo URL/source/metadata, index it as `public_policy_demo`, and show explicit non-official labeling in UI/API/tests.
 - [Risk] Adding controls to existing pages can clutter the UI. → Keep the first version compact: run/refresh, status, metadata, chunks, retrieval preview.
 - [Risk] Triggering ingestion from the UI can resemble the prior anti-pattern of retrieval triggering ingest. → Only explicit admin ingestion actions may run tasks; retrieval and `/ask` do not trigger ingestion.
 - [Risk] The showcase might overpromise production readiness. → Show known limitations in UI/docs: no scheduler, no arbitrary URLs, no required Docling/MinerU/OFD production parser chain yet.

@@ -287,6 +287,7 @@ export async function submitSessionAskStreamRequest(
             state.source_summary ?? {
                 knowledge_scope: "public",
                 public_policy_count: 0,
+                public_policy_demo_count: 0,
                 private_sample_count: 0,
                 private_upload_count: 0,
                 total_citation_count: 0,
@@ -503,6 +504,7 @@ function buildAskResponseFromStreamState(state: StreamAccumulatedState): Session
             state.source_summary ?? {
                 knowledge_scope: "public",
                 public_policy_count: 0,
+                public_policy_demo_count: 0,
                 private_sample_count: 0,
                 private_upload_count: 0,
                 total_citation_count: 0,

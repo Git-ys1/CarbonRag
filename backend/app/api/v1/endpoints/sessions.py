@@ -30,6 +30,7 @@ def build_error_response(*, status_code: int, answer: str, trace_id: str, knowle
         source_summary=AskSourceSummary(
             knowledge_scope=knowledge_scope,
             public_policy_count=0,
+            public_policy_demo_count=0,
             private_sample_count=0,
             private_upload_count=0,
             total_citation_count=0,
@@ -101,6 +102,7 @@ def empty_source_summary(knowledge_scope: str) -> AskSourceSummary:
     return AskSourceSummary(
         knowledge_scope=knowledge_scope,
         public_policy_count=0,
+        public_policy_demo_count=0,
         private_sample_count=0,
         private_upload_count=0,
         total_citation_count=0,
