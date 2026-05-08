@@ -871,7 +871,8 @@ export function AdminPlaceholderPage() {
                                 description="公网政策爬虫默认不自动定时运行。管理员手动抓取后，结果只进入 pending_review 候选区；发布前不会进入 public_policy_web，也不会影响 /ask 默认检索。"
                             />
                             {policyCrawlerStatus ? (
-                                <Descriptions column={2} size="small" bordered>
+                                <>
+                                    <Descriptions column={2} size="small" bordered>
                                     <Descriptions.Item label="Provider">
                                         {policyCrawlerStatus.provider_name} / {policyCrawlerStatus.provider_mode}
                                     </Descriptions.Item>
@@ -902,7 +903,16 @@ export function AdminPlaceholderPage() {
                                         concurrency=
                                         {formatMetadataValue(policyCrawlerStatus.safe_limits.concurrent_requests_per_domain)}
                                     </Descriptions.Item>
-                                </Descriptions>
+                                    </Descriptions>
+                                    {!policyCrawlerStatus.provider_available ? (
+                                        <Alert
+                                            showIcon
+                                            type="info"
+                                            message="Scrapy 未安装或当前后端环境不可用"
+                                            description="Admin 仍会展示官方源和手动抓取入口；安装 scrapy 后，手动抓取会真正访问官方白名单源。未安装时点击会记录 unavailable 运行结果，不会影响 /ask。"
+                                        />
+                                    ) : null}
+                                </>
                             ) : (
                                 <Typography.Text type="secondary">暂无爬虫状态。</Typography.Text>
                             )}
@@ -913,20 +923,7 @@ export function AdminPlaceholderPage() {
                                 dataSource={policyCrawlerSources}
                                 locale={{ emptyText: "暂无政策爬虫源。" }}
                                 renderItem={(source) => (
-                                    <List.Item
-                                        actions={[
-                                            <Button
-                                                key="run"
-                                                size="small"
-                                                type="primary"
-                                                disabled={!policyCrawlerStatus?.manual_enabled || Boolean(policyCrawlerStatus?.running)}
-                                                loading={runningCrawlerSourceId === source.source_id}
-                                                onClick={() => void handleRunPolicyCrawler(source.source_id)}
-                                            >
-                                                手动抓取
-                                            </Button>,
-                                        ]}
-                                    >
+                                    <List.Item>
                                         <Space direction="vertical" size={4} style={{ width: "100%" }}>
                                             <Space size={8} wrap>
                                                 <Typography.Text strong>{source.title}</Typography.Text>
@@ -942,6 +939,29 @@ export function AdminPlaceholderPage() {
                                             </Space>
                                             <Typography.Text type="secondary">{source.source_url}</Typography.Text>
                                             {source.last_error ? <Typography.Text type="danger">{source.last_error}</Typography.Text> : null}
+                                            <Space size={8} wrap>
+                                                <Tooltip title="只抓取官方白名单源；结果会先进入待审核候选区，发布前不会进入 /ask 检索。">
+                                                    <Button
+                                                        size="small"
+                                                        type="primary"
+                                                        icon={<ReloadOutlined />}
+                                                        disabled={
+                                                            !policyCrawlerStatus?.manual_enabled ||
+                                                            Boolean(policyCrawlerStatus?.running) ||
+                                                            !source.is_enabled
+                                                        }
+                                                        loading={runningCrawlerSourceId === source.source_id}
+                                                        onClick={() => void handleRunPolicyCrawler(source.source_id)}
+                                                    >
+                                                        手动抓取官方源
+                                                    </Button>
+                                                </Tooltip>
+                                                {!policyCrawlerStatus?.provider_available ? (
+                                                    <Typography.Text type="secondary">
+                                                        Scrapy 当前不可用，点击后会记录 unavailable 状态。
+                                                    </Typography.Text>
+                                                ) : null}
+                                            </Space>
                                         </Space>
                                     </List.Item>
                                 )}

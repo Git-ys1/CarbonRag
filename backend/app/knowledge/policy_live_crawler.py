@@ -609,7 +609,10 @@ class PolicyCrawlerScheduler:
     ) -> None:
         self.settings = settings or get_settings()
         self.store = store or PolicyCrawlerStore()
-        self.provider = provider or ScrapyCrawlerProvider(settings=self.settings)
+        self.provider = provider or ScrapyCrawlerProvider(
+            enabled=self.settings.rag_policy_live_crawler_manual_enabled,
+            settings=self.settings,
+        )
         self.candidate_dir = Path(candidate_dir or Path(self.settings.public_data_dir) / "policy_crawl_candidates")
         self._run_lock = threading.Lock()
         self._stop_event = threading.Event()

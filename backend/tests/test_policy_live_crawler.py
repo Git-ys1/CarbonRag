@@ -27,12 +27,13 @@ def test_policy_live_crawler_startup_seeds_sources_without_scheduled_run(tmp_pat
 
 def test_policy_live_crawler_scrapy_unavailable_records_run_without_crashing(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr("app.knowledge.policy_ingestion.importlib.util.find_spec", lambda name: None)
-    scheduler = _build_scheduler(
-        tmp_path,
-        provider=ScrapyCrawlerProvider(enabled=True),
-        settings_overrides={"rag_enable_policy_crawler": True},
-    )
+    scheduler = _build_scheduler(tmp_path)
     scheduler.start()
+
+    status = scheduler.status()
+    assert status.manual_enabled is True
+    assert status.provider_enabled is True
+    assert status.provider_available is False
 
     run = scheduler.run_source_now(source_id="gov-cn-policy-library", triggered_by_user_id=None)
 
@@ -156,7 +157,7 @@ def test_policy_live_crawler_published_candidate_can_be_processed(monkeypatch, t
     assert chunks[0].source_type == "public_policy"
 
 
-def _build_scheduler(tmp_path, *, provider, settings_overrides: dict | None = None) -> PolicyCrawlerScheduler:
+def _build_scheduler(tmp_path, *, provider=None, settings_overrides: dict | None = None) -> PolicyCrawlerScheduler:
     db_path = tmp_path / "carbonrag.sqlite3"
     public_dir = tmp_path / "public"
     settings = Settings(
