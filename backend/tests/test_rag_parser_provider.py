@@ -1,5 +1,10 @@
 import json
 
+import pytest
+from docx import Document
+from openpyxl import Workbook
+from reportlab.pdfgen import canvas
+
 from app.core.config import Settings
 from app.rag.parser import (
     DefaultParserProvider,
@@ -19,6 +24,8 @@ def test_default_parser_provider_supports_current_file_types() -> None:
     assert provider.supports("sample.xlsx")
     assert provider.supports("sample.xls")
     assert provider.supports("sample.docx")
+    assert provider.supports("sample.html", "text/html")
+    assert provider.supports("sample.pptx")
     assert provider.supports("sample.pdf", "application/pdf")
     assert provider.supports(content_type="text/plain")
     assert not provider.supports("legacy.doc", "application/msword")
@@ -43,6 +50,115 @@ def test_default_parser_provider_parse_returns_parsed_document_with_blocks(tmp_p
     assert parsed.metadata["source_file"] == str(source)
     assert parsed.metadata["parse_success"] is True
     assert parsed.metadata["parse_error"] is None
+
+
+def test_default_parser_provider_parses_html_without_script_or_style(tmp_path) -> None:
+    source = tmp_path / "policy.html"
+    source.write_text(
+        """
+        <html>
+          <head><style>.hidden{}</style><script>ignored()</script></head>
+          <body><h1>Policy Title</h1><p>Carbon accounting guidance.</p></body>
+        </html>
+        """,
+        encoding="utf-8",
+    )
+    provider = DefaultParserProvider()
+
+    parsed = provider.parse(source, content_type="text/html")
+
+    assert parsed.metadata["parse_success"] is True
+    assert "Policy Title" in parsed.text
+    assert "Carbon accounting guidance" in parsed.text
+    assert "ignored" not in parsed.text
+    assert parsed.blocks
+    assert parsed.metadata["block_count"] == len(parsed.blocks)
+
+
+def test_default_parser_provider_parses_csv_as_table_blocks(tmp_path) -> None:
+    source = tmp_path / "inventory.csv"
+    source.write_text("item,value\nElectricity,1200\nGas,300\n", encoding="utf-8")
+    provider = DefaultParserProvider()
+
+    parsed = provider.parse(source, content_type="text/csv")
+
+    assert parsed.metadata["parse_success"] is True
+    assert parsed.blocks
+    assert parsed.blocks[0].block_type == "table"
+    assert parsed.blocks[0].metadata["marker_type"] == "table"
+    assert parsed.metadata["table_count"] == 2
+
+
+def test_default_parser_provider_parses_xlsx_with_sheet_metadata(tmp_path) -> None:
+    source = tmp_path / "inventory.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Scope1"
+    sheet.append(["activity", "amount"])
+    sheet.append(["fuel", 42])
+    workbook.save(source)
+    provider = DefaultParserProvider()
+
+    parsed = provider.parse(source)
+
+    assert parsed.metadata["parse_success"] is True
+    assert parsed.blocks
+    assert parsed.blocks[0].block_type == "table"
+    assert parsed.blocks[0].metadata["marker_type"] == "sheet"
+    assert "Scope1" in parsed.blocks[0].section
+
+
+def test_default_parser_provider_parses_docx_tables(tmp_path) -> None:
+    source = tmp_path / "policy.docx"
+    document = Document()
+    document.add_paragraph("Policy overview")
+    table = document.add_table(rows=1, cols=2)
+    table.rows[0].cells[0].text = "Clause"
+    table.rows[0].cells[1].text = "Requirement"
+    document.save(source)
+    provider = DefaultParserProvider()
+
+    parsed = provider.parse(source)
+
+    assert parsed.metadata["parse_success"] is True
+    assert {block.block_type for block in parsed.blocks} >= {"paragraph", "table"}
+    assert any(block.metadata.get("marker_type") == "table" for block in parsed.blocks)
+
+
+def test_default_parser_provider_parses_pdf_page_blocks(tmp_path) -> None:
+    source = tmp_path / "policy.pdf"
+    pdf = canvas.Canvas(str(source))
+    pdf.drawString(72, 720, "Page one carbon policy")
+    pdf.showPage()
+    pdf.drawString(72, 720, "Page two accounting guidance")
+    pdf.save()
+    provider = DefaultParserProvider()
+
+    parsed = provider.parse(source, content_type="application/pdf")
+
+    assert parsed.metadata["parse_success"] is True
+    assert parsed.metadata["page_count"] == 2
+    assert [block.page for block in parsed.blocks] == [1, 2]
+    assert parsed.blocks[0].metadata["marker_type"] == "page"
+
+
+def test_default_parser_provider_parses_pptx_when_optional_dependency_available(tmp_path) -> None:
+    pytest.importorskip("pptx")
+    from pptx import Presentation
+
+    source = tmp_path / "slides.pptx"
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[5])
+    slide.shapes.title.text = "Carbon roadmap"
+    presentation.save(source)
+    provider = DefaultParserProvider()
+
+    parsed = provider.parse(source)
+
+    assert parsed.metadata["parse_success"] is True
+    assert parsed.blocks
+    assert parsed.blocks[0].page == 1
+    assert parsed.blocks[0].metadata["marker_type"] == "slide"
 
 
 def test_default_parser_provider_score_stays_between_zero_and_one(tmp_path) -> None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 from importlib import metadata as importlib_metadata
 from pathlib import Path
+import re
 from typing import Any, Protocol
 
 from pydantic import BaseModel, Field
@@ -49,13 +50,15 @@ class ParserProvider(Protocol):
 class DefaultParserProvider:
     parser_name = "carbonrag-default"
     parser_version = "1.0"
-    supported_suffixes = {".txt", ".md", ".csv", ".xlsx", ".xls", ".docx", ".pdf"}
+    supported_suffixes = {".txt", ".md", ".csv", ".xlsx", ".xls", ".docx", ".pdf", ".html", ".htm", ".pptx"}
     supported_content_types = {
         "application/pdf",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         "application/vnd.ms-excel",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "text/csv",
+        "text/html",
         "text/markdown",
         "text/plain",
     }
@@ -106,6 +109,7 @@ class DefaultParserProvider:
             return self._failed_document(path=resolved_path, mime_type=resolved_mime_type, error=str(exc))
 
         document_id = f"parsed-{hash_content(str(resolved_path))[:12]}"
+        blocks = _structured_blocks_from_text(parsed.text, document_id=document_id)
         document = ParsedDocument(
             document_id=document_id,
             source_uri=str(resolved_path),
@@ -115,11 +119,13 @@ class DefaultParserProvider:
             mime_type=parsed.mime_type,
             source_path=str(resolved_path),
             parser_name=self.parser_name,
-            blocks=_blocks_from_text(parsed.text, document_id=document_id),
+            blocks=blocks,
             metadata=self._metadata(
                 source_file=str(resolved_path),
                 parse_success=True,
                 parse_error=None,
+                text=parsed.text,
+                blocks=blocks,
             ),
         )
         return document.model_copy(update={"quality_score": self.score(document)})
@@ -153,15 +159,32 @@ class DefaultParserProvider:
         )
         return document
 
-    def _metadata(self, *, source_file: str, parse_success: bool, parse_error: str | None) -> dict:
-        return {
+    def _metadata(
+        self,
+        *,
+        source_file: str,
+        parse_success: bool,
+        parse_error: str | None,
+        text: str = "",
+        blocks: list[DocumentBlock] | None = None,
+    ) -> dict:
+        resolved_blocks = blocks or []
+        page_numbers = sorted({block.page for block in resolved_blocks if block.page is not None})
+        table_count = sum(1 for block in resolved_blocks if block.block_type == "table")
+        metadata: dict[str, Any] = {
             "parser_name": self.parser_name,
             "parser_version": self.parser_version,
             "source": "app.knowledge.parsers",
             "source_file": source_file,
             "parse_success": parse_success,
             "parse_error": parse_error,
+            "block_count": len(resolved_blocks),
+            "page_count": len(page_numbers) or None,
+            "table_count": table_count,
         }
+        if text:
+            metadata["text_length"] = len(text)
+        return metadata
 
 
 class LightweightParserProvider(DefaultParserProvider):
@@ -679,12 +702,88 @@ def _blocks_from_text(text: str, *, document_id: str) -> list[DocumentBlock]:
     return blocks
 
 
+def _structured_blocks_from_text(text: str, *, document_id: str) -> list[DocumentBlock]:
+    blocks: list[DocumentBlock] = []
+    current_page: int | None = None
+    current_section: str | None = None
+    order_index = 0
+    for raw_segment in (part.strip() for part in text.split("\n\n")):
+        if not raw_segment:
+            continue
+        segment, current_page, current_section, marker_metadata = _strip_block_marker(
+            raw_segment,
+            current_page=current_page,
+            current_section=current_section,
+        )
+        if not segment:
+            continue
+        order_index += 1
+        first_line = segment.splitlines()[0].strip()
+        if first_line.startswith("#"):
+            block_type = "title"
+        elif marker_metadata.get("marker_type") in {"table", "sheet"} or " | " in first_line:
+            block_type = "table"
+        elif first_line.startswith(("-", "*", "1.")):
+            block_type = "list"
+        else:
+            block_type = "paragraph"
+        blocks.append(
+            DocumentBlock(
+                block_id=f"block-{order_index:04d}",
+                document_id=document_id,
+                block_type=block_type,  # type: ignore[arg-type]
+                text=segment,
+                page=current_page,
+                section=current_section,
+                order_index=order_index,
+                metadata=marker_metadata,
+            )
+        )
+    return blocks
+
+
+def _strip_block_marker(
+    segment: str,
+    *,
+    current_page: int | None,
+    current_section: str | None,
+) -> tuple[str, int | None, str | None, dict[str, Any]]:
+    metadata: dict[str, Any] = {}
+    normalized = segment.strip()
+
+    page_match = re.match(r"^\[(Page|Slide)\s+(\d+)\]\s*(.*)$", normalized, flags=re.IGNORECASE | re.DOTALL)
+    if page_match:
+        marker_type = page_match.group(1).lower()
+        current_page = int(page_match.group(2))
+        current_section = f"{marker_type} {current_page}"
+        metadata.update({"marker_type": marker_type, "marker_value": current_page})
+        return page_match.group(3).strip(), current_page, current_section, metadata
+
+    table_match = re.match(r"^\[(Table)\s+([^\]]+)\]\s*(.*)$", normalized, flags=re.IGNORECASE | re.DOTALL)
+    if table_match:
+        marker_detail = table_match.group(2).strip()
+        metadata.update({"marker_type": "table", "marker_value": marker_detail})
+        return table_match.group(3).strip(), current_page, current_section, metadata
+
+    sheet_match = re.match(r"^\[(Sheet)\s+([^\]]+)\]\s*(.*)$", normalized, flags=re.IGNORECASE | re.DOTALL)
+    if sheet_match:
+        marker_detail = sheet_match.group(2).strip()
+        current_section = f"sheet {marker_detail}"
+        metadata.update({"marker_type": "sheet", "marker_value": marker_detail})
+        return sheet_match.group(3).strip(), current_page, current_section, metadata
+
+    return normalized, current_page, current_section, metadata
+
+
 def _guess_mime_type(path: Path) -> str:
     mapping = {
         ".csv": "text/csv",
         ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".html": "text/html",
+        ".htm": "text/html",
         ".md": "text/markdown",
         ".pdf": "application/pdf",
+        ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         ".txt": "text/plain",
         ".xls": "application/vnd.ms-excel",
         ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
