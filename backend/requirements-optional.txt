@@ -2,6 +2,8 @@
 docling
 python-pptx
 scrapy
+# Optional daemon for remote Scrapy execution. Local development and CI do not require it.
+scrapyd
 # MinerU is optional and disabled by default. Install the MinerU stack manually
 # per upstream docs before setting RAG_ENABLE_MINERU=true.
 # magic-pdf

@@ -329,6 +329,7 @@ export function AdminPlaceholderPage() {
     const selectedPolicySource = policySources[0] ?? policyShowcaseStatus?.source ?? null;
     const policyChunks = policyShowcaseStatus?.chunks ?? [];
     const policyRetrievalHits = policyShowcaseStatus?.retrieval_preview?.hits ?? [];
+    const policyCrawlerBackendLabel = formatCrawlerBackend(policyCrawlerStatus?.crawler_backend);
 
     useEffect(() => {
         void loadAdminWorkspace();
@@ -854,6 +855,9 @@ export function AdminPlaceholderPage() {
                         title="实时政策爬虫"
                         extra={
                             <Space size={8} wrap>
+                                <Tag color={policyCrawlerStatus?.crawler_backend === "scrapyd" ? "purple" : "blue"}>
+                                    {policyCrawlerBackendLabel}
+                                </Tag>
                                 <Tag color={policyCrawlerStatus?.provider_available ? "green" : "orange"}>
                                     {policyCrawlerStatus?.provider_available ? "Scrapy 可用" : "Scrapy 不可用"}
                                 </Tag>
@@ -875,6 +879,31 @@ export function AdminPlaceholderPage() {
                                     <Descriptions column={2} size="small" bordered>
                                     <Descriptions.Item label="Provider">
                                         {policyCrawlerStatus.provider_name} / {policyCrawlerStatus.provider_mode}
+                                    </Descriptions.Item>
+                                    <Descriptions.Item label="Backend">
+                                        <Space size={8} wrap>
+                                            <Tag color={policyCrawlerStatus.crawler_backend === "scrapyd" ? "purple" : "blue"}>
+                                                {formatCrawlerBackend(policyCrawlerStatus.crawler_backend)}
+                                            </Tag>
+                                            {policyCrawlerStatus.external_job_id ? (
+                                                <Typography.Text code>{policyCrawlerStatus.external_job_id}</Typography.Text>
+                                            ) : null}
+                                        </Space>
+                                    </Descriptions.Item>
+                                    <Descriptions.Item label="Local Scrapy">
+                                        <Tag color={availabilityColor(policyCrawlerStatus.local_scrapy_available)}>
+                                            {availabilityLabel(policyCrawlerStatus.local_scrapy_available)}
+                                        </Tag>
+                                    </Descriptions.Item>
+                                    <Descriptions.Item label="Scrapyd">
+                                        <Space size={8} wrap>
+                                            <Tag color={availabilityColor(policyCrawlerStatus.scrapyd_available)}>
+                                                {availabilityLabel(policyCrawlerStatus.scrapyd_available)}
+                                            </Tag>
+                                            {policyCrawlerStatus.scrapyd_endpoint_label ? (
+                                                <Typography.Text code>{policyCrawlerStatus.scrapyd_endpoint_label}</Typography.Text>
+                                            ) : null}
+                                        </Space>
                                     </Descriptions.Item>
                                     <Descriptions.Item label="Provider 状态">
                                         <Space size={8} wrap>
@@ -910,6 +939,14 @@ export function AdminPlaceholderPage() {
                                             type="info"
                                             message="Scrapy 未安装或当前后端环境不可用"
                                             description="Admin 仍会展示官方源和手动抓取入口；安装 scrapy 后，手动抓取会真正访问官方白名单源。未安装时点击会记录 unavailable 运行结果，不会影响 /ask。"
+                                        />
+                                    ) : null}
+                                    {policyCrawlerStatus.provider_error ? (
+                                        <Alert
+                                            showIcon
+                                            type="warning"
+                                            message={`${formatCrawlerBackend(policyCrawlerStatus.crawler_backend)} backend detail`}
+                                            description={policyCrawlerStatus.provider_error}
                                         />
                                     ) : null}
                                 </>
@@ -1030,6 +1067,9 @@ export function AdminPlaceholderPage() {
                                                     {crawlerRunStatusLabelMap[run.status] ?? run.status}
                                                 </Tag>
                                                 <Tag>{run.trigger_type}</Tag>
+                                                {typeof run.metadata.external_job_id === "string" ? (
+                                                    <Tag>{run.metadata.external_job_id}</Tag>
+                                                ) : null}
                                                 <Tag>{run.candidate_count} 候选</Tag>
                                             </Space>
                                             <Typography.Text type={run.error_detail ? "danger" : "secondary"}>
@@ -1296,6 +1336,33 @@ function formatTimestamp(value: string) {
         hour: "2-digit",
         minute: "2-digit",
     });
+}
+
+function formatCrawlerBackend(value?: string | null) {
+    if (value === "scrapyd") {
+        return "Scrapyd";
+    }
+    return "Local Scrapy";
+}
+
+function availabilityLabel(value?: boolean | null) {
+    if (value === true) {
+        return "available";
+    }
+    if (value === false) {
+        return "unavailable";
+    }
+    return "not configured";
+}
+
+function availabilityColor(value?: boolean | null) {
+    if (value === true) {
+        return "green";
+    }
+    if (value === false) {
+        return "orange";
+    }
+    return "default";
 }
 
 function formatMetadataValue(value: unknown) {

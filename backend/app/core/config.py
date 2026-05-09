@@ -38,6 +38,14 @@ class Settings(BaseSettings):
     rag_enable_mineru: bool = False
     rag_parser_fallback_chain: str = "docling,mineru,default"
     rag_enable_policy_crawler: bool = False
+    rag_policy_crawler_backend: str = "local_scrapy"
+    rag_policy_scrapyd_endpoint: str = "http://127.0.0.1:6800"
+    rag_policy_scrapyd_project: str = "carbonrag"
+    rag_policy_scrapyd_spider: str = "carbonrag_policy_spider"
+    rag_policy_scrapyd_health_timeout_seconds: float = 3.0
+    rag_policy_scrapyd_poll_interval_seconds: float = 1.0
+    rag_policy_scrapyd_poll_timeout_seconds: float = 60.0
+    rag_policy_scrapyd_feed_url_template: str | None = None
     rag_policy_live_crawler_manual_enabled: bool = True
     rag_policy_live_crawler_scheduled_enabled: bool = False
     rag_policy_live_crawler_startup_seed_sources: bool = True

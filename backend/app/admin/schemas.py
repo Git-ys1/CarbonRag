@@ -198,10 +198,16 @@ class PolicyCrawlerStatusSummary(BaseModel):
     scheduled_enabled: bool
     manual_enabled: bool
     running: bool
+    crawler_backend: str
     provider_name: str
     provider_mode: str
     provider_enabled: bool
     provider_available: bool
+    local_scrapy_available: bool | None = None
+    scrapyd_available: bool | None = None
+    scrapyd_endpoint_label: str | None = None
+    provider_error: str | None = None
+    external_job_id: str | None = None
     interval_seconds: int
     initial_delay_seconds: float
     source_count: int = 0

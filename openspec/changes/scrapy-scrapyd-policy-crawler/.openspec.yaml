@@ -1,0 +1,8 @@
+id: scrapy-scrapyd-policy-crawler
+status: proposed
+owners:
+  - "#2"
+modules:
+  - M5
+  - M3
+  - M8

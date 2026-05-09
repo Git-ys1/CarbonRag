@@ -19,6 +19,7 @@ from app.knowledge.policy_ingestion import (
     CrawledDocument,
     CrawlerProvider,
     PolicyCrawlRequest,
+    ScrapydCrawlerProvider,
     ScrapyCrawlerProvider,
     is_allowed_policy_url,
 )
@@ -96,10 +97,16 @@ class PolicyCrawlerStatus(BaseModel):
     scheduled_enabled: bool
     manual_enabled: bool
     running: bool
+    crawler_backend: str
     provider_name: str
     provider_mode: str
     provider_enabled: bool
     provider_available: bool
+    local_scrapy_available: bool | None = None
+    scrapyd_available: bool | None = None
+    scrapyd_endpoint_label: str | None = None
+    provider_error: str | None = None
+    external_job_id: str | None = None
     interval_seconds: int
     initial_delay_seconds: float
     source_count: int = 0
@@ -609,10 +616,7 @@ class PolicyCrawlerScheduler:
     ) -> None:
         self.settings = settings or get_settings()
         self.store = store or PolicyCrawlerStore()
-        self.provider = provider or ScrapyCrawlerProvider(
-            enabled=self.settings.rag_policy_live_crawler_manual_enabled,
-            settings=self.settings,
-        )
+        self.provider = provider or _build_default_crawler_provider(self.settings)
         self.candidate_dir = Path(candidate_dir or Path(self.settings.public_data_dir) / "policy_crawl_candidates")
         self._run_lock = threading.Lock()
         self._stop_event = threading.Event()
@@ -643,20 +647,30 @@ class PolicyCrawlerScheduler:
             self.store.seed_default_sources()
         descriptor = self.provider.describe()
         runs = self.store.list_runs(limit=1)
+        latest_run = runs[0] if runs else None
+        external_job_id = None
+        if latest_run is not None:
+            external_job_id = _metadata_string(latest_run.metadata, "external_job_id")
         return PolicyCrawlerStatus(
             scheduler_started=self._started,
             scheduled_enabled=self.settings.rag_policy_live_crawler_scheduled_enabled,
             manual_enabled=self.settings.rag_policy_live_crawler_manual_enabled,
             running=self._run_lock.locked(),
+            crawler_backend=descriptor.crawler_backend or _normalize_crawler_backend(self.settings.rag_policy_crawler_backend),
             provider_name=descriptor.name,
             provider_mode=descriptor.mode,
             provider_enabled=descriptor.enabled,
             provider_available=descriptor.available,
+            local_scrapy_available=descriptor.local_scrapy_available,
+            scrapyd_available=descriptor.scrapyd_available,
+            scrapyd_endpoint_label=descriptor.scrapyd_endpoint_label,
+            provider_error=descriptor.last_error,
+            external_job_id=external_job_id,
             interval_seconds=self.settings.rag_policy_live_crawler_interval_seconds,
             initial_delay_seconds=self.settings.rag_policy_live_crawler_initial_delay_seconds,
             source_count=len(self.store.list_sources()),
             pending_candidate_count=self.store.count_pending_candidates(),
-            recent_run_status=runs[0].status if runs else None,
+            recent_run_status=latest_run.status if latest_run else None,
             safe_limits=self._safe_limits(),
         )
 
@@ -879,6 +893,31 @@ class PolicyCrawlerScheduler:
 @lru_cache(maxsize=1)
 def get_policy_crawler_scheduler() -> PolicyCrawlerScheduler:
     return PolicyCrawlerScheduler()
+
+
+def _build_default_crawler_provider(settings: Settings) -> CrawlerProvider:
+    backend = _normalize_crawler_backend(settings.rag_policy_crawler_backend)
+    if backend == "scrapyd":
+        return ScrapydCrawlerProvider(
+            enabled=settings.rag_policy_live_crawler_manual_enabled,
+            settings=settings,
+        )
+    return ScrapyCrawlerProvider(
+        enabled=settings.rag_policy_live_crawler_manual_enabled,
+        settings=settings,
+    )
+
+
+def _normalize_crawler_backend(value: str | None) -> str:
+    normalized = (value or "local_scrapy").strip().lower().replace("-", "_")
+    if normalized in {"scrapyd", "remote_scrapyd"}:
+        return "scrapyd"
+    return "local_scrapy"
+
+
+def _metadata_string(metadata: dict[str, Any], key: str) -> str | None:
+    value = metadata.get(key)
+    return value if isinstance(value, str) and value else None
 
 
 def _host(url: str) -> str:

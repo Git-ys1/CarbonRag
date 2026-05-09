@@ -46,7 +46,8 @@ def test_session_ask_route_persists_history_and_citations(monkeypatch, tmp_path)
     captured: dict[str, dict] = {}
 
     def fake_stream(method: str, url: str, *, headers: dict, json: dict, timeout: float):
-        captured["payload"] = json
+        if any("history-1" in str(message.get("content", "")) for message in json.get("messages", [])):
+            captured["payload"] = json
         return FakeStreamingResponse(
             status_code=200,
             lines=[

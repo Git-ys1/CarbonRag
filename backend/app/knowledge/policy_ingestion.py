@@ -6,11 +6,14 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
+import urllib.parse
+import urllib.request
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Callable, Literal, Protocol
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -54,6 +57,11 @@ class CrawlerProviderDescriptor(BaseModel):
     mode: str = "optional"
     enabled: bool = False
     available: bool = False
+    crawler_backend: str | None = None
+    local_scrapy_available: bool | None = None
+    scrapyd_available: bool | None = None
+    scrapyd_endpoint_label: str | None = None
+    last_error: str | None = None
 
 
 class PolicyCrawlRequest(BaseModel):
@@ -184,11 +192,15 @@ class ScrapyCrawlerProvider:
         return importlib.util.find_spec("scrapy") is not None
 
     def describe(self) -> CrawlerProviderDescriptor:
+        available = self.crawler_available
         return CrawlerProviderDescriptor(
             name=self.provider_name,
             mode="scrapy",
             enabled=self.enabled,
-            available=self.crawler_available,
+            available=available,
+            crawler_backend="local_scrapy",
+            local_scrapy_available=available,
+            scrapyd_available=None,
         )
 
     def crawl(self, request: PolicyCrawlRequest) -> CrawlResult:
@@ -210,6 +222,179 @@ class ScrapyCrawlerProvider:
             documents=documents,
             metadata=_scrapy_settings_metadata(request),
         )
+
+
+class ScrapydCrawlerProvider:
+    provider_name = "scrapyd-policy-crawler"
+
+    def __init__(
+        self,
+        *,
+        enabled: bool | None = None,
+        settings: Settings | None = None,
+        http_get: Callable[[str, float], dict[str, Any]] | None = None,
+        http_post: Callable[[str, dict[str, Any], float], dict[str, Any]] | None = None,
+        sleeper: Callable[[float], None] | None = None,
+    ) -> None:
+        resolved_settings = settings or get_settings()
+        self.settings = resolved_settings
+        self.enabled = resolved_settings.rag_policy_live_crawler_manual_enabled if enabled is None else enabled
+        self.endpoint = resolved_settings.rag_policy_scrapyd_endpoint.rstrip("/")
+        self.project = resolved_settings.rag_policy_scrapyd_project
+        self.spider = resolved_settings.rag_policy_scrapyd_spider
+        self.http_get = http_get or _http_get_json
+        self.http_post = http_post or _http_post_form
+        self.sleeper = sleeper or time.sleep
+
+    def describe(self) -> CrawlerProviderDescriptor:
+        available, error = self._daemon_available()
+        return CrawlerProviderDescriptor(
+            name=self.provider_name,
+            mode="scrapyd",
+            enabled=self.enabled,
+            available=available,
+            crawler_backend="scrapyd",
+            local_scrapy_available=importlib.util.find_spec("scrapy") is not None,
+            scrapyd_available=available,
+            scrapyd_endpoint_label=_safe_endpoint_label(self.endpoint),
+            last_error=error,
+        )
+
+    def crawl(self, request: PolicyCrawlRequest) -> CrawlResult:
+        if not self.enabled:
+            return CrawlResult(provider_name=self.provider_name, status="disabled", errors=["Policy crawler is disabled."])
+        try:
+            validate_policy_crawl_request(request)
+        except PolicyCrawlerValidationError as exc:
+            return CrawlResult(provider_name=self.provider_name, status="rejected", errors=[str(exc)])
+        available, error = self._daemon_available()
+        if not available:
+            return CrawlResult(
+                provider_name=self.provider_name,
+                status="unavailable",
+                errors=[error or "Scrapyd daemon is unavailable."],
+                metadata=self._base_metadata(),
+            )
+        try:
+            schedule_payload = self._schedule_payload(request)
+            schedule_response = self.http_post(f"{self.endpoint}/schedule.json", schedule_payload, request.timeout_seconds)
+            if schedule_response.get("status") != "ok":
+                return CrawlResult(
+                    provider_name=self.provider_name,
+                    status="failed",
+                    errors=[str(schedule_response.get("message") or "Scrapyd schedule request failed.")],
+                    metadata={**self._base_metadata(), "schedule_response": _public_payload(schedule_response)},
+                )
+            job_id = str(schedule_response.get("jobid") or "").strip()
+            if not job_id:
+                return CrawlResult(
+                    provider_name=self.provider_name,
+                    status="failed",
+                    errors=["Scrapyd schedule response did not include a job id."],
+                    metadata={**self._base_metadata(), "schedule_response": _public_payload(schedule_response)},
+                )
+            documents = self._documents_from_payload(schedule_response)
+            metadata = {
+                **self._base_metadata(),
+                "external_job_id": job_id,
+                "schedule_status": schedule_response.get("status"),
+            }
+            if not documents:
+                documents, poll_metadata = self._poll_documents(job_id=job_id, request=request)
+                metadata.update(poll_metadata)
+            return CrawlResult(
+                provider_name=self.provider_name,
+                status="succeeded",
+                documents=documents,
+                metadata=metadata,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return CrawlResult(provider_name=self.provider_name, status="failed", errors=[str(exc)], metadata=self._base_metadata())
+
+    def _daemon_available(self) -> tuple[bool, str | None]:
+        if not self.endpoint:
+            return False, "Scrapyd endpoint is not configured."
+        try:
+            payload = self.http_get(f"{self.endpoint}/daemonstatus.json", self.settings.rag_policy_scrapyd_health_timeout_seconds)
+        except Exception as exc:  # noqa: BLE001
+            return False, str(exc)
+        if payload.get("status") == "ok":
+            return True, None
+        return False, str(payload.get("message") or payload.get("status") or "Scrapyd daemon did not report ok.")
+
+    def _schedule_payload(self, request: PolicyCrawlRequest) -> dict[str, Any]:
+        return {
+            "project": self.project,
+            "spider": self.spider,
+            "start_urls_json": json.dumps(request.start_urls, ensure_ascii=False),
+            "allowed_domains_json": json.dumps(request.allowed_domains, ensure_ascii=False),
+            "max_depth": str(request.max_depth),
+            "max_pages": str(request.max_pages),
+            "obey_robots": "true" if request.obey_robots else "false",
+            "download_delay_seconds": str(request.download_delay_seconds),
+            "concurrent_requests_per_domain": str(request.concurrent_requests_per_domain),
+            "timeout_seconds": str(request.timeout_seconds),
+            "user_agent": request.user_agent or "",
+            "metadata_json": json.dumps(request.metadata, ensure_ascii=False),
+        }
+
+    def _poll_documents(self, *, job_id: str, request: PolicyCrawlRequest) -> tuple[list[CrawledDocument], dict[str, Any]]:
+        timeout_seconds = min(request.timeout_seconds, self.settings.rag_policy_scrapyd_poll_timeout_seconds)
+        deadline = time.monotonic() + max(0.1, timeout_seconds)
+        poll_url = f"{self.endpoint}/listjobs.json?{urllib.parse.urlencode({'project': self.project})}"
+        last_payload: dict[str, Any] = {}
+        while time.monotonic() <= deadline:
+            payload = self.http_get(poll_url, request.timeout_seconds)
+            last_payload = payload
+            finished_job = _find_scrapyd_job(payload.get("finished"), job_id)
+            if finished_job is not None:
+                documents = self._documents_from_payload(finished_job)
+                if not documents:
+                    documents = self._fetch_feed_documents(job_id=job_id, request=request)
+                return documents, {
+                    "external_job_id": job_id,
+                    "scrapyd_job_state": "finished",
+                    "result_fetch": "documents" if documents else "empty",
+                }
+            if _find_scrapyd_job(payload.get("running"), job_id) is None and _find_scrapyd_job(payload.get("pending"), job_id) is None:
+                return [], {
+                    "external_job_id": job_id,
+                    "scrapyd_job_state": "unknown",
+                    "poll_response": _public_payload(last_payload),
+                }
+            self.sleeper(max(0.0, self.settings.rag_policy_scrapyd_poll_interval_seconds))
+        return [], {
+            "external_job_id": job_id,
+            "scrapyd_job_state": "timeout",
+            "poll_response": _public_payload(last_payload),
+        }
+
+    def _fetch_feed_documents(self, *, job_id: str, request: PolicyCrawlRequest) -> list[CrawledDocument]:
+        template = self.settings.rag_policy_scrapyd_feed_url_template
+        if not template:
+            return []
+        feed_url = template.format(jobid=job_id, project=self.project, spider=self.spider)
+        payload = self.http_get(feed_url, request.timeout_seconds)
+        return self._documents_from_payload(payload)
+
+    def _documents_from_payload(self, payload: Any) -> list[CrawledDocument]:
+        if isinstance(payload, dict):
+            raw_documents = payload.get("documents")
+        elif isinstance(payload, list):
+            raw_documents = payload
+        else:
+            raw_documents = None
+        if not isinstance(raw_documents, list):
+            return []
+        return [CrawledDocument.model_validate(item) for item in raw_documents if isinstance(item, dict)]
+
+    def _base_metadata(self) -> dict[str, Any]:
+        return {
+            "crawler_backend": "scrapyd",
+            "scrapyd_endpoint_label": _safe_endpoint_label(self.endpoint),
+            "scrapyd_project": self.project,
+            "scrapyd_spider": self.spider,
+        }
 
 
 class ConvertedPolicyDocument(BaseModel):
@@ -650,6 +835,59 @@ def _run_scrapy_crawler_subprocess(request: PolicyCrawlRequest) -> list[CrawledD
         if not isinstance(payload, list):
             raise RuntimeError("Scrapy runner returned an invalid document payload.")
         return [CrawledDocument.model_validate(item) for item in payload]
+
+
+def _http_get_json(url: str, timeout_seconds: float) -> dict[str, Any]:
+    with urllib.request.urlopen(url, timeout=timeout_seconds) as response:
+        payload = json.loads(response.read().decode("utf-8") or "{}")
+    if not isinstance(payload, dict):
+        raise RuntimeError("HTTP response did not contain a JSON object.")
+    return payload
+
+
+def _http_post_form(url: str, payload: dict[str, Any], timeout_seconds: float) -> dict[str, Any]:
+    encoded = urllib.parse.urlencode(payload).encode("utf-8")
+    request = urllib.request.Request(
+        url,
+        data=encoded,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+        parsed = json.loads(response.read().decode("utf-8") or "{}")
+    if not isinstance(parsed, dict):
+        raise RuntimeError("HTTP response did not contain a JSON object.")
+    return parsed
+
+
+def _find_scrapyd_job(value: Any, job_id: str) -> dict[str, Any] | None:
+    if not isinstance(value, list):
+        return None
+    for item in value:
+        if isinstance(item, dict) and str(item.get("id") or "") == job_id:
+            return item
+    return None
+
+
+def _safe_endpoint_label(endpoint: str | None) -> str | None:
+    if not endpoint:
+        return None
+    parsed = urlparse(endpoint)
+    if not parsed.netloc:
+        return endpoint
+    host = parsed.hostname or ""
+    port = f":{parsed.port}" if parsed.port else ""
+    netloc = f"{host}{port}"
+    return urlunparse((parsed.scheme, netloc, parsed.path.rstrip("/"), "", "", ""))
+
+
+def _public_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    hidden_keys = {"password", "token", "secret", "authorization", "cookie"}
+    public: dict[str, Any] = {}
+    for key, value in payload.items():
+        normalized_key = str(key).lower()
+        public[key] = "[redacted]" if any(secret in normalized_key for secret in hidden_keys) else value
+    return public
 
 
 def _extract_html_text(raw_html: str) -> HtmlExtractionResult:

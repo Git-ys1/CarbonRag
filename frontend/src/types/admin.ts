@@ -192,10 +192,16 @@ export interface PolicyCrawlerStatusSummary {
     scheduled_enabled: boolean;
     manual_enabled: boolean;
     running: boolean;
+    crawler_backend: string;
     provider_name: string;
     provider_mode: string;
     provider_enabled: boolean;
     provider_available: boolean;
+    local_scrapy_available: boolean | null;
+    scrapyd_available: boolean | null;
+    scrapyd_endpoint_label: string | null;
+    provider_error: string | null;
+    external_job_id: string | null;
     interval_seconds: number;
     initial_delay_seconds: number;
     source_count: number;
