@@ -50,7 +50,9 @@ data/outputs/*
 !data/outputs/.gitkeep
 backend/backend/
 data/public/policy_staging/
+data/public/policy_crawl_candidates/
 backend/data/public/policy_staging/
+backend/data/public/policy_crawl_candidates/
 uploads/
 runtime/
 *.sqlite

@@ -1319,17 +1319,29 @@ export function AdminPlaceholderPage() {
                                 header={<Typography.Text strong>自动入库记录</Typography.Text>}
                                 dataSource={policyCrawlerCandidates.slice(0, 8)}
                                 locale={{ emptyText: "暂无记录。抓取成功后会显示政策文件、来源、摘要、匹配关键词和索引结果。" }}
-                                renderItem={(candidate) => (
+                                renderItem={(candidate) => {
+                                    const matchedKeywords = metadataStringList(candidate.metadata.matched_policy_keywords);
+                                    return (
                                     <List.Item>
-                                        <Space direction="vertical" size={4} style={{ width: "100%" }}>
+                                        <Space direction="vertical" size={6} style={{ width: "100%" }}>
                                             <Space size={8} wrap>
-                                                <Typography.Text strong>{candidate.title ?? candidate.url}</Typography.Text>
+                                                <Typography.Text strong>{candidateDisplayTitle(candidate)}</Typography.Text>
+                                                {candidate.title && isGenericPolicyCrawlerTitle(candidate.title) ? (
+                                                    <Tag color="orange">标题需复核</Tag>
+                                                ) : null}
                                                 <Tag color={candidateStatusColorMap[candidate.status]}>
                                                     {candidateStatusLabelMap[candidate.status] ?? candidate.status}
                                                 </Tag>
                                                 <Tag>{candidate.content_type}</Tag>
+                                                {candidateQualityTags(candidate).map((tag) => (
+                                                    <Tag key={`${candidate.candidate_id}-${tag.label}`} color={tag.color}>
+                                                        {tag.label}
+                                                    </Tag>
+                                                ))}
                                             </Space>
-                                            <Typography.Text type="secondary">{candidate.url}</Typography.Text>
+                                            <Typography.Link href={candidate.url} target="_blank" rel="noreferrer" ellipsis>
+                                                {candidate.url}
+                                            </Typography.Link>
                                             <Typography.Paragraph type="secondary" ellipsis={{ rows: 2 }}>
                                                 {formatCandidateSummary(candidate)}
                                             </Typography.Paragraph>
@@ -1349,7 +1361,17 @@ export function AdminPlaceholderPage() {
                                                     </Typography.Text>
                                                 </Descriptions.Item>
                                                 <Descriptions.Item label="匹配关键词">
-                                                    {formatMetadataValue(candidate.metadata.matched_policy_keywords) || "未记录"}
+                                                    {matchedKeywords.length > 0 ? (
+                                                        <Space size={4} wrap>
+                                                            {matchedKeywords.map((keyword) => (
+                                                                <Tag key={`${candidate.candidate_id}-${keyword}`} color="green">
+                                                                    {keyword}
+                                                                </Tag>
+                                                            ))}
+                                                        </Space>
+                                                    ) : (
+                                                        <Typography.Text type="warning">未匹配双碳/技术标准关键词</Typography.Text>
+                                                    )}
                                                 </Descriptions.Item>
                                                 <Descriptions.Item label="入库结果">
                                                     {candidate.review_note || (candidate.knowledge_item_id ? "已创建知识条目" : "等待自动处理")}
@@ -1360,7 +1382,8 @@ export function AdminPlaceholderPage() {
                                             </Typography.Text>
                                         </Space>
                                     </List.Item>
-                                )}
+                                    );
+                                }}
                             />
 
                             <List
@@ -1369,9 +1392,17 @@ export function AdminPlaceholderPage() {
                                 header={<Typography.Text strong>最近运行记录</Typography.Text>}
                                 dataSource={policyCrawlerRuns.slice(0, 5)}
                                 locale={{ emptyText: "暂无运行记录。" }}
-                                renderItem={(run) => (
+                                renderItem={(run) => {
+                                    const runCandidates = policyCrawlerCandidates.filter((candidate) => candidate.run_id === run.run_id);
+                                    const indexedCount =
+                                        typeof run.metadata.auto_indexed_count === "number" ? run.metadata.auto_indexed_count : 0;
+                                    const failedIndexCount =
+                                        typeof run.metadata.auto_index_failed_count === "number" ? run.metadata.auto_index_failed_count : 0;
+                                    const skippedTopicCount =
+                                        typeof run.metadata.skipped_topic_count === "number" ? run.metadata.skipped_topic_count : 0;
+                                    return (
                                     <List.Item>
-                                        <Space direction="vertical" size={4} style={{ width: "100%" }}>
+                                        <Space direction="vertical" size={8} style={{ width: "100%" }}>
                                             <Space size={8} wrap>
                                                 <Typography.Text code>{run.run_id}</Typography.Text>
                                                 <Tag color={crawlerRunStatusColorMap[run.status] ?? "default"}>
@@ -1381,20 +1412,63 @@ export function AdminPlaceholderPage() {
                                                 {typeof run.metadata.external_job_id === "string" ? (
                                                     <Tag>{run.metadata.external_job_id}</Tag>
                                                 ) : null}
+                                                <Tag>{run.document_count} 抓取文档</Tag>
                                                 <Tag>{run.candidate_count} 入库记录</Tag>
-                                                {typeof run.metadata.auto_indexed_count === "number" ? (
-                                                    <Tag color="green">{run.metadata.auto_indexed_count} 已索引</Tag>
-                                                ) : null}
-                                                {typeof run.metadata.skipped_topic_count === "number" ? (
-                                                    <Tag color="gold">{run.metadata.skipped_topic_count} 主题过滤</Tag>
-                                                ) : null}
+                                                <Tag color={indexedCount > 0 ? "green" : "default"}>{indexedCount} 已索引</Tag>
+                                                {failedIndexCount > 0 ? <Tag color="red">{failedIndexCount} 索引失败</Tag> : null}
+                                                <Tag color={skippedTopicCount > 0 ? "gold" : "default"}>{skippedTopicCount} 主题过滤</Tag>
                                             </Space>
                                             <Typography.Text type={run.error_detail ? "danger" : "secondary"}>
                                                 {run.error_detail ?? `${formatTimestamp(run.started_at)} / ${run.provider_name ?? "unknown"}`}
                                             </Typography.Text>
+                                            <Descriptions size="small" column={{ xs: 1, sm: 2, md: 4 }}>
+                                                <Descriptions.Item label="自动发布">
+                                                    {formatMetadataValue(run.metadata.auto_published_count)}
+                                                </Descriptions.Item>
+                                                <Descriptions.Item label="索引成功率">
+                                                    {run.candidate_count > 0
+                                                        ? `${indexedCount}/${run.candidate_count}`
+                                                        : "暂无入库记录"}
+                                                </Descriptions.Item>
+                                                <Descriptions.Item label="主题过滤">
+                                                    {formatMetadataValue(run.metadata.skipped_topic_count)}
+                                                </Descriptions.Item>
+                                                <Descriptions.Item label="运行耗时">
+                                                    {run.finished_at
+                                                        ? `${Math.max(0, Math.round((new Date(run.finished_at).getTime() - new Date(run.started_at).getTime()) / 1000))}s`
+                                                        : "运行中"}
+                                                </Descriptions.Item>
+                                            </Descriptions>
+                                            {runCandidates.length > 0 ? (
+                                                <Space direction="vertical" size={4} style={{ width: "100%" }}>
+                                                    <Typography.Text type="secondary">本次命中文档</Typography.Text>
+                                                    {runCandidates.slice(0, 4).map((candidate) => {
+                                                        const keywords = metadataStringList(candidate.metadata.matched_policy_keywords);
+                                                        return (
+                                                            <div key={`${run.run_id}-${candidate.candidate_id}`} className="admin-crawler-hit-row">
+                                                                <Space size={6} wrap>
+                                                                    <Typography.Text strong>{candidateDisplayTitle(candidate)}</Typography.Text>
+                                                                    <Tag color={candidate.metadata.index_status === "indexed" ? "green" : "default"}>
+                                                                        {formatMetadataText(candidate.metadata.index_status) ?? candidate.status}
+                                                                    </Tag>
+                                                                    {keywords.slice(0, 5).map((keyword) => (
+                                                                        <Tag key={`${candidate.candidate_id}-${keyword}`} color="blue">
+                                                                            {keyword}
+                                                                        </Tag>
+                                                                    ))}
+                                                                </Space>
+                                                                <Typography.Link href={candidate.url} target="_blank" rel="noreferrer" ellipsis>
+                                                                    {candidate.url}
+                                                                </Typography.Link>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </Space>
+                                            ) : null}
                                         </Space>
                                     </List.Item>
-                                )}
+                                    );
+                                }}
                             />
                         </Space>
                     </Card>
@@ -1704,6 +1778,10 @@ function availabilityColor(value?: boolean | null) {
 }
 
 function formatMetadataValue(value: unknown) {
+    if (Array.isArray(value)) {
+        const items = value.map((item) => formatMetadataText(item)).filter((item): item is string => Boolean(item));
+        return items.length ? items.join("、") : "暂无";
+    }
     if (typeof value === "string" && value.trim()) {
         return value;
     }
@@ -1721,6 +1799,20 @@ function formatMetadataText(value: unknown): string | null {
         return String(value);
     }
     return null;
+}
+
+function metadataStringList(value: unknown): string[] {
+    if (Array.isArray(value)) {
+        return value.map((item) => formatMetadataText(item)).filter((item): item is string => Boolean(item));
+    }
+    const single = formatMetadataText(value);
+    if (!single) {
+        return [];
+    }
+    return single
+        .split(/[、,，]/)
+        .map((item) => item.trim())
+        .filter(Boolean);
 }
 
 function formatBytes(value: unknown): string {
@@ -1746,6 +1838,45 @@ function formatCandidateSummary(candidate: PolicyCrawlerCandidateSummary): strin
         return `${candidate.content_type} 文件，待发布后进入解析链路。`;
     }
     return "暂无正文摘要。请查看 URL、内容类型和抓取元数据后再决定是否发布。";
+}
+
+function candidateDisplayTitle(candidate: PolicyCrawlerCandidateSummary): string {
+    const title = candidate.title?.trim();
+    if (title && !isGenericPolicyCrawlerTitle(title)) {
+        return title;
+    }
+    const metadataTitle =
+        formatMetadataText(candidate.metadata.source_title) ||
+        formatMetadataText(candidate.metadata.source_label) ||
+        formatMetadataText(candidate.metadata.candidate_response_url);
+    return metadataTitle || title || candidate.url;
+}
+
+function isGenericPolicyCrawlerTitle(value: string): boolean {
+    const title = value.trim();
+    return [
+        "国务院政策文件库",
+        "政策文件库",
+        "政策文件",
+        "政策公开",
+        "政策发布",
+        "搜索",
+        "检索",
+    ].includes(title);
+}
+
+function candidateQualityTags(candidate: PolicyCrawlerCandidateSummary) {
+    const keywords = metadataStringList(candidate.metadata.matched_policy_keywords);
+    const depth = Number(candidate.metadata.candidate_depth ?? 0);
+    const tags: Array<{ label: string; color: string }> = [];
+    tags.push({ label: keywords.length > 0 ? `${keywords.length} 个关键词` : "无关键词", color: keywords.length > 0 ? "green" : "orange" });
+    tags.push({ label: depth > 0 ? "具体页面" : "入口页", color: depth > 0 ? "blue" : "default" });
+    if (candidate.metadata.index_status === "indexed") {
+        tags.push({ label: "已索引", color: "green" });
+    } else if (candidate.metadata.index_status === "failed") {
+        tags.push({ label: "索引失败", color: "red" });
+    }
+    return tags;
 }
 
 function extractDetailMessage(value: unknown): string | null {

@@ -74,10 +74,10 @@ class Settings(BaseSettings):
     rag_policy_live_crawler_interval_seconds: int = 86_400
     rag_policy_live_crawler_failure_backoff_seconds: int = 3_600
     rag_policy_live_crawler_max_depth: int = 1
-    rag_policy_live_crawler_max_pages: int = 20
-    rag_policy_live_crawler_download_delay_seconds: float = 2.0
+    rag_policy_live_crawler_max_pages: int = 8
+    rag_policy_live_crawler_download_delay_seconds: float = 1.0
     rag_policy_live_crawler_concurrent_per_domain: int = 1
-    rag_policy_live_crawler_timeout_seconds: float = 60.0
+    rag_policy_live_crawler_timeout_seconds: float = 120.0
     rag_policy_live_crawler_user_agent: str = "CarbonRagPolicyCrawler/1.0 (+official-policy-knowledge)"
     vector_store_path: str = "./data/outputs/vector_store"
     public_data_dir: str = "./data/public"

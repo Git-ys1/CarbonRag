@@ -35,7 +35,7 @@ def _crawl(request: dict[str, Any]) -> list[dict[str, Any]]:
     process = CrawlerProcess(settings=build_scrapy_settings(request))
     process.crawl(CarbonRagPolicySpider, **build_spider_kwargs(request, documents=documents))
     process.start()
-    return documents[: int(request.get("max_pages") or 20)]
+    return documents[: int(request.get("max_pages") or 8)]
 
 
 if __name__ == "__main__":

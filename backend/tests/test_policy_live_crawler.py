@@ -63,6 +63,9 @@ def test_policy_live_crawler_allowlist_matches_official_domains(tmp_path) -> Non
         "fgw.beijing.gov.cn",
     ]
     assert scheduler.status().safe_limits["allowed_domains"] == list(DEFAULT_POLICY_CRAWLER_ALLOWED_DOMAINS)
+    assert scheduler.status().safe_limits["max_pages"] == 8
+    assert scheduler.status().safe_limits["download_delay_seconds"] == 1.0
+    assert scheduler.status().safe_limits["timeout_seconds"] == 120.0
 
 
 def test_policy_live_crawler_scrapy_unavailable_records_run_without_crashing(monkeypatch, tmp_path) -> None:

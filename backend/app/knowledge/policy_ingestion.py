@@ -65,11 +65,11 @@ class PolicyCrawlRequest(BaseModel):
     start_urls: list[str] = Field(min_length=1)
     allowed_domains: list[str] = Field(default_factory=lambda: list(DEFAULT_POLICY_CRAWLER_ALLOWED_DOMAINS))
     max_depth: int = Field(default=1, ge=0, le=5)
-    max_pages: int = Field(default=50, ge=1, le=200)
+    max_pages: int = Field(default=8, ge=1, le=200)
     obey_robots: bool = True
     download_delay_seconds: float = Field(default=1.0, ge=0.0)
     concurrent_requests_per_domain: int = Field(default=2, ge=1, le=4)
-    timeout_seconds: float = Field(default=60.0, ge=1.0, le=300.0)
+    timeout_seconds: float = Field(default=120.0, ge=1.0, le=300.0)
     user_agent: str | None = Field(default=None, max_length=240)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -873,14 +873,23 @@ def _run_scrapy_crawler_subprocess(request: PolicyCrawlRequest) -> list[CrawledD
             "--output",
             str(output_path),
         ]
-        completed = subprocess.run(
-            command,
-            cwd=backend_dir,
-            capture_output=True,
-            text=True,
-            timeout=request.timeout_seconds,
-            check=False,
-        )
+        subprocess_timeout = _scrapy_subprocess_timeout(request)
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=backend_dir,
+                capture_output=True,
+                text=True,
+                timeout=subprocess_timeout,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                "Scrapy runner timed out after "
+                f"{subprocess_timeout:.1f} seconds "
+                f"(crawl timeout={request.timeout_seconds:.1f}s, "
+                f"max_pages={request.max_pages}, max_depth={request.max_depth})."
+            ) from exc
         if completed.returncode != 0:
             stderr = completed.stderr.strip() or completed.stdout.strip() or "Scrapy runner failed."
             raise RuntimeError(stderr)
@@ -890,6 +899,10 @@ def _run_scrapy_crawler_subprocess(request: PolicyCrawlRequest) -> list[CrawledD
         if not isinstance(payload, list):
             raise RuntimeError("Scrapy runner returned an invalid document payload.")
         return [CrawledDocument.model_validate(item) for item in payload]
+
+
+def _scrapy_subprocess_timeout(request: PolicyCrawlRequest) -> float:
+    return min(360.0, max(request.timeout_seconds + 45.0, request.timeout_seconds * 1.5))
 
 
 def _discover_policy_documents_with_urllib(request: PolicyCrawlRequest) -> list[CrawledDocument]:

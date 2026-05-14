@@ -21,7 +21,9 @@ from app.knowledge.policy_ingestion import (
     normalize_policy_governance_metadata,
     stage_crawled_document,
     validate_policy_crawl_request,
+    _scrapy_subprocess_timeout,
 )
+from app.knowledge.policy_scrapy_spider import _should_capture_document
 from app.knowledge.schemas import KnowledgeTask
 from app.knowledge.runner import KnowledgeTaskRunner
 from app.knowledge.service import KnowledgeService
@@ -108,6 +110,43 @@ def test_scrapy_provider_can_crawl_local_allowed_pages(tmp_path) -> None:
     urls = {document.url for document in result.documents}
     assert any(url.endswith("/detail.html") for url in urls)
     assert any("推动碳达峰行动" in document.content for document in result.documents)
+
+
+def test_scrapy_subprocess_gets_shutdown_grace_after_crawl_timeout() -> None:
+    request = PolicyCrawlRequest(
+        start_urls=["https://www.gov.cn/zhengce/"],
+        max_pages=8,
+        timeout_seconds=120,
+    )
+
+    assert _scrapy_subprocess_timeout(request) == 180
+
+
+def test_scrapy_spider_does_not_capture_policy_search_or_listing_pages() -> None:
+    assert not _should_capture_document(
+        url="https://sousuo.www.gov.cn/zcwjk/policyDocumentLibrary?q=%E7%A2%B3%E8%BE%BE%E5%B3%B0&t=zhengcelibrary",
+        title="国务院政策文件库",
+        content_type="text/html",
+        depth=1,
+        is_seed_url=False,
+    )
+    assert not _should_capture_document(
+        url="https://www.gov.cn/zhengce/",
+        title="政策文件",
+        content_type="text/html",
+        depth=0,
+        is_seed_url=True,
+    )
+
+
+def test_scrapy_spider_captures_specific_policy_detail_pages() -> None:
+    assert _should_capture_document(
+        url="https://www.ndrc.gov.cn/fggz/hjyzy/tdftzh/202408/t20240822_1392547.html",
+        title="国家碳达峰试点（襄阳）实施方案",
+        content_type="text/html",
+        depth=1,
+        is_seed_url=False,
+    )
 
 
 def test_html_policy_parser_extracts_readable_text(tmp_path) -> None:
