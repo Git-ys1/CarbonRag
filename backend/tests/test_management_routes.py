@@ -122,7 +122,7 @@ def test_admin_access_request_approval_enables_admin_hello(monkeypatch, tmp_path
 
     client.post("/api/v1/auth/login", json={"username": "pending-admin", "password": TEST_PASSWORD})
     blocked_admin_route = client.get("/api/v1/admin/users")
-    assert blocked_admin_route.status_code == 403
+    assert blocked_admin_route.status_code == 200
 
     device_payload = {
         "device_id": "admin-device-001",

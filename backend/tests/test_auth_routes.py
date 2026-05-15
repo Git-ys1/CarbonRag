@@ -176,6 +176,46 @@ def test_register_admin_with_seed_password_recovers_existing_broken_admin(monkey
     assert login_response.json()["must_change_password"] is True
 
 
+def test_seed_admin_login_repairs_demoted_runtime_row(monkeypatch, tmp_path) -> None:
+    session_service = build_session_service(tmp_path)
+    monkeypatch.setattr("app.api.v1.endpoints.sessions.get_session_service", lambda: session_service)
+    auth_service = patch_test_auth_service(monkeypatch, db_path=tmp_path / "carbonrag.sqlite3")
+    seed_admin = auth_service.ensure_seed_admin_and_backfill()
+    with auth_service._connect() as connection:  # noqa: SLF001 - simulate stale runtime data after a bad merge
+        connection.execute(
+            "UPDATE users SET role = ?, is_active = ?, password_must_change = ? WHERE user_id = ?",
+            ("user", 1, 1, seed_admin.user_id),
+        )
+
+    client.cookies.clear()
+    login_response = client.post(
+        "/api/v1/auth/login",
+        json={"username": "admin", "password": "123456"},
+    )
+    assert login_response.status_code == 200, login_response.text
+    assert login_response.json()["user"]["role"] == "super_admin"
+    assert login_response.json()["must_change_password"] is True
+
+
+def test_seed_admin_me_repairs_demoted_runtime_row(monkeypatch, tmp_path) -> None:
+    session_service = build_session_service(tmp_path)
+    monkeypatch.setattr("app.api.v1.endpoints.sessions.get_session_service", lambda: session_service)
+    auth_service = patch_test_auth_service(monkeypatch, db_path=tmp_path / "carbonrag.sqlite3")
+
+    client.cookies.clear()
+    login_response = client.post(
+        "/api/v1/auth/login",
+        json={"username": "admin", "password": "123456"},
+    )
+    assert login_response.status_code == 200, login_response.text
+    with auth_service._connect() as connection:  # noqa: SLF001 - existing browser session sees stale role until /me repairs
+        connection.execute("UPDATE users SET role = ? WHERE username = ?", ("user", "admin"))
+
+    me_response = client.get("/api/v1/auth/me")
+    assert me_response.status_code == 200, me_response.text
+    assert me_response.json()["user"]["role"] == "super_admin"
+
+
 def test_register_admin_with_non_seed_password_is_rejected(monkeypatch, tmp_path) -> None:
     session_service = build_session_service(tmp_path)
     monkeypatch.setattr("app.api.v1.endpoints.sessions.get_session_service", lambda: session_service)

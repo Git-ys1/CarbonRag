@@ -481,6 +481,8 @@ class AuthService:
 
     def login(self, payload: LoginRequest | dict) -> AuthLoginResult:
         request = payload if isinstance(payload, LoginRequest) else LoginRequest.model_validate(payload)
+        if request.username == SEED_ADMIN_USERNAME:
+            self.ensure_seed_admin_and_backfill()
         row = self._fetch_user_by_username(request.username)
         if row is None:
             raise AuthenticationError("Invalid username or password.")
@@ -636,6 +638,11 @@ class AuthService:
 
         if row is None:
             return None
+        if row["username"] == SEED_ADMIN_USERNAME and row["role"] != "super_admin":
+            self.ensure_seed_admin_and_backfill()
+            refreshed_seed_row = self._fetch_user_by_id(row["user_id"])
+            if refreshed_seed_row is not None:
+                row = refreshed_seed_row
         return self._row_to_user(row)
 
     def logout(self, raw_token: str | None) -> None:
