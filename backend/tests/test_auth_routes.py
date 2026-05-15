@@ -135,7 +135,7 @@ def test_register_admin_with_seed_password_recovers_missing_seed_admin(monkeypat
     assert register_response.status_code == 200
     recovered_user = register_response.json()["user"]
     assert recovered_user["username"] == "admin"
-    assert recovered_user["role"] == "admin"
+    assert recovered_user["role"] == "super_admin"
     assert recovered_user["password_must_change"] is True
 
     login_response = client.post(
@@ -151,7 +151,11 @@ def test_register_admin_with_seed_password_recovers_existing_broken_admin(monkey
     monkeypatch.setattr("app.api.v1.endpoints.sessions.get_session_service", lambda: session_service)
     auth_service = patch_test_auth_service(monkeypatch, db_path=tmp_path / "carbonrag.sqlite3")
     seed_admin = auth_service.ensure_seed_admin_and_backfill()
-    auth_service.update_user(user_id=seed_admin.user_id, role="user", is_active=False)
+    with auth_service._connect() as connection:  # noqa: SLF001 - simulate a corrupted bootstrap row
+        connection.execute(
+            "UPDATE users SET role = ?, is_active = ?, password_must_change = ? WHERE user_id = ?",
+            ("user", 0, 0, seed_admin.user_id),
+        )
 
     client.cookies.clear()
     register_response = client.post(
@@ -160,7 +164,7 @@ def test_register_admin_with_seed_password_recovers_existing_broken_admin(monkey
     )
     assert register_response.status_code == 200
     recovered_user = register_response.json()["user"]
-    assert recovered_user["role"] == "admin"
+    assert recovered_user["role"] == "super_admin"
     assert recovered_user["is_active"] is True
     assert recovered_user["password_must_change"] is True
 

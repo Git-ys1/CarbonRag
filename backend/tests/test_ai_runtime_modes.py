@@ -16,6 +16,7 @@ def test_ask_mode_contract() -> None:
         "langchain_rag_answer",
         "carbon_factor_lookup",
         "report_carbon_extract_calc",
+        "report_file_generate",
     )
     assert mode.default_stub_tool_sequence == ("policy_retrieve",)
     assert mode.response_schema is RuntimeResult
@@ -46,6 +47,7 @@ def test_report_mode_contract() -> None:
         "policy_retrieve",
         "enterprise_retrieve",
         "report_draft",
+        "report_file_generate",
     )
     assert mode.default_stub_tool_sequence == (
         "policy_retrieve",
