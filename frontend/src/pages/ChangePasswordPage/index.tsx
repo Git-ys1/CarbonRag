@@ -1,8 +1,9 @@
 import { LockOutlined } from "@ant-design/icons";
-import { Alert, Button, Card, Form, Input, Typography, message } from "antd";
+import { Button, Card, Form, Input, Typography } from "antd";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../app/AuthContext";
+import { useFeedback } from "../../hooks/useFeedback";
 
 interface ChangePasswordFormValues {
     current_password: string;
@@ -13,8 +14,8 @@ interface ChangePasswordFormValues {
 export function ChangePasswordPage() {
     const navigate = useNavigate();
     const { user, loading, changePassword } = useAuth();
+    const feedback = useFeedback();
     const [submitting, setSubmitting] = useState(false);
-    const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [form] = Form.useForm<ChangePasswordFormValues>();
 
     useEffect(() => {
@@ -32,16 +33,19 @@ export function ChangePasswordPage() {
 
     async function handleSubmit(values: ChangePasswordFormValues) {
         setSubmitting(true);
-        setErrorMessage(null);
         try {
             await changePassword({
                 current_password: values.current_password,
                 new_password: values.new_password,
             });
-            message.success("密码已更新。");
+            feedback.success({ title: "密码已更新。" });
             navigate("/", { replace: true });
         } catch (error) {
-            setErrorMessage(extractDetailMessage(error) ?? "修改密码失败，请稍后重试。");
+            feedback.error({
+                title: "修改密码失败",
+                description: extractDetailMessage(error) ?? "请稍后重试。",
+                source: "ChangePasswordPage",
+            });
         } finally {
             setSubmitting(false);
         }
@@ -54,15 +58,6 @@ export function ChangePasswordPage() {
                 <Typography.Paragraph type="secondary">
                     初始管理员账号和被重置密码的账号，都必须先完成这一步，才能进入工作台。
                 </Typography.Paragraph>
-                {errorMessage ? (
-                    <Alert
-                        showIcon
-                        type="warning"
-                        message="密码更新提示"
-                        description={errorMessage}
-                        className="auth-card__alert"
-                    />
-                ) : null}
                 <Form<ChangePasswordFormValues> form={form} layout="vertical" onFinish={handleSubmit}>
                     <Form.Item
                         label="当前密码"

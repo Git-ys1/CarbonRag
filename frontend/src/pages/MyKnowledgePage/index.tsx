@@ -1,6 +1,5 @@
 import { ReloadOutlined } from "@ant-design/icons";
 import {
-    Alert,
     Button,
     Card,
     Empty,
@@ -14,6 +13,7 @@ import {
 } from "antd";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
+import { useFeedback } from "../../hooks/useFeedback";
 import { loadMyKnowledgeWorkspace } from "../../services/knowledge";
 import type { KnowledgeItem, MyKnowledgeFeedback, MyKnowledgeReport, MyKnowledgeWorkspace } from "../../types/knowledge";
 import { useNavigate } from "react-router-dom";
@@ -28,6 +28,7 @@ const emptyWorkspace: MyKnowledgeWorkspace = {
 
 export function MyKnowledgePage() {
     const navigate = useNavigate();
+    const feedback = useFeedback();
     const [workspace, setWorkspace] = useState<MyKnowledgeWorkspace>(emptyWorkspace);
     const [loading, setLoading] = useState(true);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -35,6 +36,18 @@ export function MyKnowledgePage() {
     useEffect(() => {
         void refreshWorkspace();
     }, []);
+
+    useEffect(() => {
+        if (!errorMessage) {
+            return;
+        }
+        feedback.error({
+            title: "我的知识库提示",
+            description: errorMessage,
+            source: "MyKnowledgePage",
+            key: `knowledge:${errorMessage}`,
+        });
+    }, [errorMessage, feedback]);
 
     async function refreshWorkspace() {
         setLoading(true);
@@ -90,16 +103,6 @@ export function MyKnowledgePage() {
             </div>
 
             <div className="knowledge-workbench__main">
-                {errorMessage ? (
-                    <Alert
-                        type="warning"
-                        showIcon
-                        className="chat-workbench__alert"
-                        message="我的知识库提示"
-                        description={errorMessage}
-                    />
-                ) : null}
-
                 <Card
                     title="知识库 · 个人知识条目"
                     extra={<Tag color="blue">当前登录用户可见</Tag>}

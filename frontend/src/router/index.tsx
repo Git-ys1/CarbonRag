@@ -12,6 +12,7 @@ import { MyKnowledgePage } from "../pages/MyKnowledgePage";
 import { KnowledgeBaseWorkbench } from "../pages/KnowledgeBaseWorkbench";
 import { ReportPage } from "../pages/ReportPage";
 import { SettingsPage } from "../pages/SettingsPage";
+import { SuperAdminPage } from "../pages/SuperAdminPage";
 
 function FullscreenLoading() {
     return (
@@ -79,7 +80,26 @@ function AdminRoute() {
     if (user.password_must_change) {
         return <Navigate to="/change-password" replace />;
     }
-    if (user.role !== "admin") {
+    if (user.role !== "admin" && user.role !== "super_admin") {
+        return <Navigate to="/" replace />;
+    }
+    return <Outlet />;
+}
+
+function SuperAdminRoute() {
+    const { user, loading } = useAuth();
+    const location = useLocation();
+
+    if (loading) {
+        return <FullscreenLoading />;
+    }
+    if (!user) {
+        return <Navigate to="/login" replace state={{ from: location }} />;
+    }
+    if (user.password_must_change) {
+        return <Navigate to="/change-password" replace />;
+    }
+    if (user.role !== "super_admin") {
         return <Navigate to="/" replace />;
     }
     return <Outlet />;
@@ -119,6 +139,12 @@ export const router = createBrowserRouter([
                         element: <AdminRoute />,
                         children: [
                             { path: "admin", element: <AdminPlaceholderPage /> },
+                        ],
+                    },
+                    {
+                        element: <SuperAdminRoute />,
+                        children: [
+                            { path: "super-admin", element: <SuperAdminPage /> },
                         ],
                     },
                 ],

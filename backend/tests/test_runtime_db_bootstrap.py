@@ -72,6 +72,11 @@ def test_bootstrap_runtime_database_creates_sqlite_schema(tmp_path) -> None:
     assert "policy_crawl_sources" in tables
     assert "policy_crawl_runs" in tables
     assert "policy_crawl_candidates" in tables
+    assert "admin_devices" in tables
+    assert "edge_relay_sessions" in tables
+    assert "admin_access_requests" in tables
+    assert "management_action_requests" in tables
+    assert "management_audit_logs" in tables
     assert "inventory_id" in calculation_columns
     assert "scope_summary_json" in calculation_columns
     assert "metadata_json" in factor_record_columns
@@ -102,4 +107,9 @@ def test_bootstrap_runtime_database_executes_postgres_schema(monkeypatch) -> Non
     assert any("CREATE TABLE IF NOT EXISTS policy_crawl_sources" in statement for statement in executed)
     assert any("CREATE TABLE IF NOT EXISTS policy_crawl_runs" in statement for statement in executed)
     assert any("CREATE TABLE IF NOT EXISTS policy_crawl_candidates" in statement for statement in executed)
+    assert any("CREATE TABLE IF NOT EXISTS admin_devices" in statement for statement in executed)
+    assert any("CREATE TABLE IF NOT EXISTS edge_relay_sessions" in statement for statement in executed)
+    assert any("CREATE TABLE IF NOT EXISTS admin_access_requests" in statement for statement in executed)
+    assert any("CREATE TABLE IF NOT EXISTS management_action_requests" in statement for statement in executed)
+    assert any("CREATE TABLE IF NOT EXISTS management_audit_logs" in statement for statement in executed)
     assert any("ALTER TABLE messages ADD COLUMN IF NOT EXISTS thinking_content TEXT" in statement for statement in executed)

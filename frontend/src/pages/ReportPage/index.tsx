@@ -26,6 +26,7 @@ import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { useNavigate } from "react-router-dom";
 import { useSettings } from "../../app/SettingsContext";
+import { useFeedback } from "../../hooks/useFeedback";
 import { useWorkbenchShellContext } from "../../layouts/WorkbenchShellContext";
 import { getSession } from "../../services/sessions";
 import {
@@ -112,6 +113,19 @@ export function ReportPage() {
     const [downloadingFileId, setDownloadingFileId] = useState<string | null>(null);
     const [exportFiles, setExportFiles] = useState<ReportFileSummary[]>([]);
     const [transportError, setTransportError] = useState<string | null>(null);
+    const feedback = useFeedback();
+
+    useEffect(() => {
+        if (!transportError) {
+            return;
+        }
+        feedback.error({
+            title: "报告工作台提示",
+            description: transportError,
+            source: "ReportPage",
+            key: `report:${transportError}`,
+        });
+    }, [feedback, transportError]);
 
     const selectableMessages = useMemo(
         () => (activeSession?.messages ?? []).filter((item) => item.role === "assistant" && item.citations.length > 0),
@@ -326,16 +340,6 @@ export function ReportPage() {
     return (
         <div className="chat-workbench chat-workbench--single-column">
             <div className="chat-workbench__main">
-                {transportError ? (
-                    <Alert
-                        type="warning"
-                        showIcon
-                        className="chat-workbench__alert"
-                        message="报告工作台提示"
-                        description={transportError}
-                    />
-                ) : null}
-
                 <Card title="当前会话报告列表">
                     {loadingSessionDetail ? (
                         <div className="chat-workbench__loading"><Spin /></div>

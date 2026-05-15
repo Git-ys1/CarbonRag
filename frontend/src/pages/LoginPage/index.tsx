@@ -1,8 +1,9 @@
 import { LockOutlined, UserOutlined } from "@ant-design/icons";
-import { Alert, Button, Card, Form, Input, Tabs, message } from "antd";
+import { Button, Card, Form, Input, Tabs } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../app/AuthContext";
+import { useFeedback } from "../../hooks/useFeedback";
 
 type AuthTab = "login" | "register";
 
@@ -16,9 +17,9 @@ export function LoginPage() {
     const navigate = useNavigate();
     const location = useLocation();
     const { user, loading, login, register } = useAuth();
+    const feedback = useFeedback();
     const [activeTab, setActiveTab] = useState<AuthTab>("login");
     const [submitting, setSubmitting] = useState(false);
-    const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [loginForm] = Form.useForm<FormValues>();
     const [registerForm] = Form.useForm<FormValues>();
 
@@ -36,13 +37,16 @@ export function LoginPage() {
 
     async function handleLogin(values: FormValues) {
         setSubmitting(true);
-        setErrorMessage(null);
         try {
             const loggedInUser = await login(values);
-            message.success(`欢迎回来，${loggedInUser.display_name || loggedInUser.username}。`);
+            feedback.success({ title: `欢迎回来，${loggedInUser.display_name || loggedInUser.username}。` });
             navigate(loggedInUser.password_must_change ? "/change-password" : redirectTarget, { replace: true });
         } catch (error) {
-            setErrorMessage(extractDetailMessage(error) ?? "登录失败，请检查用户名和密码。");
+            feedback.error({
+                title: "登录失败",
+                description: extractDetailMessage(error) ?? "请检查账号和密码。",
+                source: "LoginPage",
+            });
         } finally {
             setSubmitting(false);
         }
@@ -50,19 +54,22 @@ export function LoginPage() {
 
     async function handleRegister(values: FormValues) {
         setSubmitting(true);
-        setErrorMessage(null);
         try {
             const createdUser = await register(values);
-            if (createdUser.username === "admin" && createdUser.role === "admin") {
-                message.success("初始管理员已恢复，请使用 admin / 123456 登录，并在首次进入后立即修改密码。");
+            if (createdUser.username === "admin" && createdUser.role === "super_admin") {
+                feedback.success({ title: "初始超级管理员已恢复，请登录后立即修改密码。", history: true });
             } else {
-                message.success(`账号 ${createdUser.username} 已创建，请登录。`);
+                feedback.success({ title: `账号 ${createdUser.username} 已创建，请登录。` });
             }
             setActiveTab("login");
             loginForm.setFieldsValue({ username: createdUser.username, password: values.password });
             registerForm.resetFields();
         } catch (error) {
-            setErrorMessage(extractDetailMessage(error) ?? "注册失败，请稍后重试。");
+            feedback.error({
+                title: "注册失败",
+                description: extractDetailMessage(error) ?? "请稍后重试。",
+                source: "LoginPage",
+            });
         } finally {
             setSubmitting(false);
         }
@@ -74,21 +81,9 @@ export function LoginPage() {
                 <div className="auth-card__brand">
                     <img src="/brand/logo-lockup.png" alt="CarbonRag" />
                 </div>
-                {errorMessage ? (
-                    <Alert
-                        showIcon
-                        type="warning"
-                        message="身份认证提示"
-                        description={errorMessage}
-                        className="auth-card__alert"
-                    />
-                ) : null}
                 <Tabs
                     activeKey={activeTab}
-                    onChange={(key) => {
-                        setActiveTab(key as AuthTab);
-                        setErrorMessage(null);
-                    }}
+                    onChange={(key) => setActiveTab(key as AuthTab)}
                     items={[
                         {
                             key: "login",

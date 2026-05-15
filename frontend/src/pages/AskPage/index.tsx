@@ -44,6 +44,7 @@ import { useSettings } from "../../app/SettingsContext";
 import { FeedbackButtonGroup } from "../../components/FeedbackButtonGroup";
 import { FilePreviewDrawer } from "../../components/FilePreviewDrawer";
 import { SystemInfoPanel } from "../../components/SystemInfoPanel";
+import { useFeedback } from "../../hooks/useFeedback";
 import { useWorkbenchShellContext } from "../../layouts/WorkbenchShellContext";
 import { uploadSessionFile } from "../../services/files";
 import { listKnowledgeBases } from "../../services/kb";
@@ -114,6 +115,7 @@ interface LoadSessionDetailOptions {
 export function AskPage() {
     const { user } = useAuth();
     const { settings, getActiveProviderOverride } = useSettings();
+    const feedback = useFeedback();
     const { activeSessionId, refreshSessions, syncSessionSummary, updateSessionSummary } = useWorkbenchShellContext();
     const [searchParams] = useSearchParams();
     const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -124,6 +126,7 @@ export function AskPage() {
     const streamMemoryStateRef = useRef<SessionDetail["memory_state"] | null>(null);
     const streamContextSourceRef = useRef<StreamContextSource | null>(null);
     const shouldAutoFollowMessageStreamRef = useRef(true);
+    const knowledgeScopeNoticeRef = useRef<string | null>(null);
     const [activeSession, setActiveSession] = useState<SessionDetail | null>(null);
     const [selectedCitationMessageId, setSelectedCitationMessageId] = useState<string | null>(null);
     const [filePreviewTarget, setFilePreviewTarget] = useState<FilePreviewTarget | null>(null);
@@ -152,7 +155,7 @@ export function AskPage() {
     const [transportError, setTransportError] = useState<string | null>(null);
     const [uploadError, setUploadError] = useState<string | null>(null);
     const focusModeEnabled = searchParams.get("focus") !== "0";
-    const isAdmin = user?.role === "admin";
+    const isAdmin = user?.role === "admin" || user?.role === "super_admin";
     const sendShortcut = settings?.chat.send_shortcut ?? "enter";
     const reconnectNoticeMode = settings?.chat.reconnect_notice_mode ?? "message_only";
     const shouldShowContextDebug = settings?.chat.show_context_debug_by_default ?? false;
@@ -172,9 +175,53 @@ export function AskPage() {
 
     const selectedCitationMessage = visibleMessages.find((message) => message.message_id === selectedCitationMessageId) ?? null;
     const selectedThinkingMessage = visibleMessages.find((message) => message.message_id === selectedThinkingMessageId) ?? null;
+
+    useEffect(() => {
+        if (!transportError) {
+            return;
+        }
+        feedback.error({
+            title: "对话工作台提示",
+            description: transportError,
+            source: "AskPage",
+            key: `ask-transport:${transportError}`,
+        });
+    }, [feedback, transportError]);
+
+    useEffect(() => {
+        if (!uploadError) {
+            return;
+        }
+        feedback.error({
+            title: "附件上传失败",
+            description: uploadError,
+            source: "AskPage",
+            key: `ask-upload:${uploadError}`,
+        });
+    }, [feedback, uploadError]);
+
+    const privateAttachments = activeSession?.attached_files.filter((item) => item.source_type !== "uploaded_file") ?? [];
+
+    useEffect(() => {
+        if (knowledgeScope === "public" || privateAttachments.length > 0) {
+            knowledgeScopeNoticeRef.current = null;
+            return;
+        }
+        const key = `${knowledgeScope}:empty`;
+        if (knowledgeScopeNoticeRef.current === key) {
+            return;
+        }
+        knowledgeScopeNoticeRef.current = key;
+        feedback.info({
+            title: "当前范围已切到知识条目 / 混合",
+            description: "当前会话还没有挂接任何知识条目，该范围下可能检索为空。",
+            source: "AskPage",
+            history: true,
+            key: `ask-scope:${key}`,
+        });
+    }, [feedback, knowledgeScope, privateAttachments.length]);
     const citationGroups = groupCitationsBySource(selectedCitationMessage?.citations ?? []);
     const selectedRetrievalTrace = selectedCitationMessage?.retrieval_trace ?? null;
-    const privateAttachments = activeSession?.attached_files.filter((item) => item.source_type !== "uploaded_file") ?? [];
     const pendingUploadSignature = getPendingUploadSignature(uploadedAttachments);
     const effectiveSessionId = activeSessionId ?? activeSession?.session_id ?? null;
     const currentSourceSummary = buildPanelSourceSummary(selectedCitationMessage?.citations ?? [], activeSession?.source_summary);
@@ -927,20 +974,17 @@ export function AskPage() {
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
         >
+            {draggingFiles ? (
+                <div className="chat-upload-overlay">
+                    <div className="chat-upload-overlay__panel">
+                        <Typography.Text strong>松开鼠标即可上传附件</Typography.Text>
+                        <Typography.Text type="secondary">
+                            文件会先解析成可检索片段，解析完成后才会进入本轮提问。
+                        </Typography.Text>
+                    </div>
+                </div>
+            ) : null}
             <div className="chat-workbench__main">
-                {transportError ? <Alert type="warning" showIcon className="chat-workbench__alert" message="对话工作台提示" description={transportError} /> : null}
-                {uploadError ? <Alert type="warning" showIcon className="chat-workbench__alert" message="附件上传提示" description={uploadError} /> : null}
-                {draggingFiles ? <Alert type="info" showIcon className="chat-workbench__alert" message="松开鼠标即可上传附件" description="文件会先解析成可检索片段，解析完成后才会进入本轮提问。" /> : null}
-                {knowledgeScope !== "public" && privateAttachments.length === 0 ? (
-                    <Alert
-                        type="info"
-                        showIcon
-                        className="chat-workbench__alert"
-                        message="当前范围已切到知识条目 / 混合"
-                        description="当前会话还没有挂接任何知识条目，因此该范围下可能检索为空。"
-                    />
-                ) : null}
-
                 <Card
                     className="chat-workbench__stream-card"
                     title={(

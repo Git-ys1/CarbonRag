@@ -5,6 +5,7 @@ import {
     FolderOpenOutlined,
     FileTextOutlined,
     LogoutOutlined,
+    SafetyCertificateOutlined,
     SearchOutlined,
     SettingOutlined,
 } from "@ant-design/icons";
@@ -15,7 +16,7 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../app/AuthContext";
 import { useSettings } from "../app/SettingsContext";
 import { SessionRail, useResponsiveSessionRail } from "../components/SessionRail";
-import { ADMIN_NAV_ITEM, getNavigationItems } from "../constants/navigation";
+import { ADMIN_NAV_ITEM, SUPER_ADMIN_NAV_ITEM, getNavigationItems } from "../constants/navigation";
 import type { NavigationItem } from "../constants/navigation";
 import { createSession, deleteSession, listSessions, updateSession } from "../services/sessions";
 import type { SessionSummary } from "../types/session";
@@ -33,6 +34,7 @@ const iconMap = {
     "carbon-calculator": <ExperimentOutlined />,
     report: <FileTextOutlined />,
     admin: <DesktopOutlined />,
+    "super-admin": <SafetyCertificateOutlined />,
 };
 
 export function AppShell() {
@@ -286,8 +288,8 @@ export function AppShell() {
                 <Avatar size={44} src={user.avatar_url ?? undefined}>{getUserInitial(user)}</Avatar>
                 <div className="app-shell__focus-user-copy">
                     <Typography.Text strong>{user.display_name || user.username}</Typography.Text>
-                    <Tag color={user.role === "admin" ? "purple" : "blue"}>
-                        {user.role === "admin" ? "admin" : "user"}
+                    <Tag color={user.role === "super_admin" ? "gold" : user.role === "admin" ? "purple" : "blue"}>
+                        {roleLabel(user.role)}
                     </Tag>
                 </div>
             </Space>
@@ -295,7 +297,16 @@ export function AppShell() {
                 <Button block icon={<SettingOutlined />} onClick={() => navigate("/settings")}>
                     通用设置
                 </Button>
-                {user.role === "admin" ? (
+                {user.role === "super_admin" ? (
+                    <Button
+                        block
+                        icon={<SafetyCertificateOutlined />}
+                        onClick={() => navigate(SUPER_ADMIN_NAV_ITEM.path ?? "/super-admin")}
+                    >
+                        超级管理员
+                    </Button>
+                ) : null}
+                {user.role === "admin" || user.role === "super_admin" ? (
                     <Button block icon={<DesktopOutlined />} onClick={() => navigate(ADMIN_NAV_ITEM.path ?? "/admin")}>
                         管理后台
                     </Button>
@@ -415,6 +426,16 @@ export function AppShell() {
 function getUserInitial(user: { display_name?: string | null; username: string }) {
     const value = user.display_name || user.username;
     return value.slice(0, 1).toUpperCase();
+}
+
+function roleLabel(role: string) {
+    if (role === "super_admin") {
+        return "超级管理员";
+    }
+    if (role === "admin") {
+        return "管理员";
+    }
+    return "用户";
 }
 
 function buildNavigationMenuItems(items: NavigationItem[]): MenuProps["items"] {

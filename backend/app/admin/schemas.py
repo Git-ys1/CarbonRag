@@ -28,7 +28,7 @@ class AdminUserSummary(BaseModel):
 class UpdateAdminUserRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    role: UserRole
+    role: Literal["user", "admin"]
     is_active: bool
 
 

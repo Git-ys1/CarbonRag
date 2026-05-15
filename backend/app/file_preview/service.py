@@ -73,12 +73,12 @@ class FilePreviewService:
         store = get_knowledge_service().store
         payload = (
             store.get_uploaded_file_detail_any_owner(file_id=file_id)
-            if current_user.role == "admin"
+            if current_user.role in {"admin", "super_admin"}
             else store.get_uploaded_file_detail(owner_user_id=current_user.user_id, file_id=file_id)
         )
         if payload is None:
             raise KeyError(file_id)
-        if current_user.role != "admin" and payload.get("owner_user_id") != current_user.user_id:
+        if current_user.role not in {"admin", "super_admin"} and payload.get("owner_user_id") != current_user.user_id:
             raise PermissionError(file_id)
 
         parse_result = store.get_file_parse_result(file_id=file_id) or {}
@@ -107,7 +107,7 @@ class FilePreviewService:
 
     def _knowledge_item_preview(self, *, knowledge_item_id: str, current_user: AuthenticatedUser) -> FilePreviewResponse:
         store = get_knowledge_service().store
-        item = store.get_item(knowledge_item_id) if current_user.role == "admin" else store.get_visible_item(
+        item = store.get_item(knowledge_item_id) if current_user.role in {"admin", "super_admin"} else store.get_visible_item(
             owner_user_id=current_user.user_id,
             knowledge_item_id=knowledge_item_id,
         )
@@ -185,7 +185,7 @@ class FilePreviewService:
         )
 
     def _crawler_candidate_preview(self, *, candidate_id: str, current_user: AuthenticatedUser) -> FilePreviewResponse:
-        if current_user.role != "admin":
+        if current_user.role not in {"admin", "super_admin"}:
             raise PermissionError(candidate_id)
         candidate = get_policy_crawler_scheduler().store.get_candidate(candidate_id)
         if candidate is None:

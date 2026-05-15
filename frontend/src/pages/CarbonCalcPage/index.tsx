@@ -22,6 +22,7 @@ import {
 } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import { FeedbackButtonGroup } from "../../components/FeedbackButtonGroup";
+import { useFeedback } from "../../hooks/useFeedback";
 import { useWorkbenchShellContext } from "../../layouts/WorkbenchShellContext";
 import { submitCarbonCalculation } from "../../services/carbon";
 import { getCarbonCalculatorCatalog } from "../../services/carbonFactors";
@@ -62,6 +63,19 @@ export function CarbonCalcPage() {
     const [loadingSessionDetail, setLoadingSessionDetail] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [transportError, setTransportError] = useState<string | null>(null);
+    const feedback = useFeedback();
+
+    useEffect(() => {
+        if (!transportError) {
+            return;
+        }
+        feedback.error({
+            title: "碳核算提示",
+            description: transportError,
+            source: "CarbonCalcPage",
+            key: `calc:${transportError}`,
+        });
+    }, [feedback, transportError]);
 
     useEffect(() => {
         if (!activeSessionId) {
@@ -231,16 +245,6 @@ export function CarbonCalcPage() {
     return (
         <div className="chat-workbench chat-workbench--single-column">
             <div className="chat-workbench__main">
-                {transportError ? (
-                    <Alert
-                        type="warning"
-                        showIcon
-                        className="chat-workbench__alert"
-                        message="碳核算提示"
-                        description={transportError}
-                    />
-                ) : null}
-
                 <Card
                     className="calc-workbench__form-card carbon-calculator-card"
                     title={

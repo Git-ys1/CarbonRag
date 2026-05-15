@@ -33,6 +33,7 @@ import {
 import type { ColumnsType } from "antd/es/table";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../app/AuthContext";
+import { useFeedback } from "../../hooks/useFeedback";
 import { FilePreviewDrawer } from "../../components/FilePreviewDrawer";
 import {
     deleteAdminUsers,
@@ -229,6 +230,7 @@ const normalizedApprovedPolicyCrawlerSources: PolicyCrawlerSourceSummary[] = app
 
 export function AdminPlaceholderPage() {
     const { user: currentUser } = useAuth();
+    const feedback = useFeedback();
     const [loading, setLoading] = useState(true);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [systemStatus, setSystemStatus] = useState<AdminSystemStatus | null>(null);
@@ -264,6 +266,18 @@ export function AdminPlaceholderPage() {
     const [dryRunSourceId, setDryRunSourceId] = useState<string | null>(null);
     const [dryRunResult, setDryRunResult] = useState<PolicyCrawlerDryRunSummary | null>(null);
 
+    useEffect(() => {
+        if (!errorMessage) {
+            return;
+        }
+        feedback.warning({
+            title: "管理员工作台提示",
+            description: errorMessage,
+            source: "AdminPage",
+            key: `admin-console:${errorMessage}`,
+        });
+    }, [errorMessage, feedback]);
+
     const filteredUsers = useMemo(() => {
         const query = userSearchQuery.trim().toLowerCase();
         if (!query) {
@@ -280,7 +294,7 @@ export function AdminPlaceholderPage() {
         () =>
             new Set(
                 users
-                    .filter((item) => item.role !== "admin" && item.user_id !== currentUser?.user_id)
+                    .filter((item) => item.role !== "admin" && item.role !== "super_admin" && item.user_id !== currentUser?.user_id)
                     .map((item) => item.user_id),
             ),
         [currentUser?.user_id, users],
@@ -323,7 +337,7 @@ export function AdminPlaceholderPage() {
                         <Typography.Text>{roleLabelMap[record.role] ?? record.role}</Typography.Text>
                         <Button
                             size="small"
-                            disabled={userSavingId === record.user_id}
+                            disabled={userSavingId === record.user_id || record.role === "super_admin"}
                             onClick={() => void handleUpdateUser(record, record.role === "admin" ? "user" : "admin", record.is_active)}
                         >
                             切换角色
@@ -339,7 +353,13 @@ export function AdminPlaceholderPage() {
                         size="small"
                         checked={record.is_active}
                         loading={userSavingId === record.user_id}
-                        onChange={(checked) => void handleUpdateUser(record, record.role, checked)}
+                        disabled={record.role === "super_admin"}
+                        onChange={(checked) => {
+                            if (record.role === "super_admin") {
+                                return;
+                            }
+                            void handleUpdateUser(record, record.role, checked);
+                        }}
                     />
                 ),
             },
@@ -981,15 +1001,6 @@ export function AdminPlaceholderPage() {
                         </Button>
                     </Space>
                 </div>
-                {errorMessage ? (
-                    <Alert
-                        showIcon
-                        type="warning"
-                        message="管理员工作台提示"
-                        description={errorMessage}
-                        className="admin-console__alert"
-                    />
-                ) : null}
             </Card>
 
             {loading ? (
@@ -2207,6 +2218,7 @@ const statusColorMap: Record<string, string> = {
 const roleLabelMap = {
     user: "普通用户",
     admin: "管理员",
+    super_admin: "超级管理员",
 } as const;
 
 const libraryScopeLabelMap = {

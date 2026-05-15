@@ -779,6 +779,90 @@ CREATE TABLE IF NOT EXISTS report_files (
     FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS admin_devices (
+    device_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    device_id TEXT NOT NULL UNIQUE,
+    role_scope TEXT NOT NULL,
+    owner_user_id TEXT NOT NULL,
+    device_name TEXT NOT NULL,
+    mac_hint TEXT,
+    device_public_key TEXT NOT NULL,
+    fingerprint_hash TEXT NOT NULL,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    approved_by TEXT,
+    approved_at TEXT,
+    created_at TEXT NOT NULL,
+    last_seen_at TEXT,
+    revoked_at TEXT,
+    FOREIGN KEY (owner_user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+    FOREIGN KEY (approved_by) REFERENCES users(user_id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS edge_relay_sessions (
+    relay_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    relay_session_id TEXT NOT NULL UNIQUE,
+    user_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    connected_at TEXT NOT NULL,
+    last_heartbeat_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    server_ack_status TEXT,
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+    FOREIGN KEY (device_id) REFERENCES admin_devices(device_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS admin_access_requests (
+    request_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    request_id TEXT NOT NULL UNIQUE,
+    admin_user_id TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    device_name TEXT,
+    mac_hint TEXT,
+    device_public_key TEXT NOT NULL,
+    fingerprint_hash TEXT NOT NULL,
+    status TEXT NOT NULL,
+    requested_at TEXT NOT NULL,
+    decided_by TEXT,
+    decided_at TEXT,
+    decision_note TEXT,
+    FOREIGN KEY (admin_user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+    FOREIGN KEY (decided_by) REFERENCES users(user_id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS management_action_requests (
+    action_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    action_request_id TEXT NOT NULL UNIQUE,
+    user_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    action_type TEXT NOT NULL,
+    payload_hash TEXT NOT NULL,
+    status TEXT NOT NULL,
+    ack_token_hash TEXT,
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    decided_at TEXT,
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+    FOREIGN KEY (device_id) REFERENCES admin_devices(device_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS management_audit_logs (
+    audit_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    audit_id TEXT NOT NULL UNIQUE,
+    actor_user_id TEXT NOT NULL,
+    actor_role TEXT NOT NULL,
+    device_id TEXT,
+    action_type TEXT NOT NULL,
+    target_type TEXT,
+    target_id TEXT,
+    decision TEXT NOT NULL,
+    detail_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (actor_user_id) REFERENCES users(user_id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS private_sample_catalog_overrides (
     doc_id TEXT PRIMARY KEY,
     is_enabled INTEGER NOT NULL DEFAULT 1,
@@ -956,6 +1040,20 @@ CREATE INDEX IF NOT EXISTS idx_report_files_owner_report_created
     ON report_files(owner_user_id, report_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_report_files_owner_file
     ON report_files(owner_user_id, file_id);
+CREATE INDEX IF NOT EXISTS idx_admin_devices_owner_active
+    ON admin_devices(owner_user_id, is_active, role_scope);
+CREATE INDEX IF NOT EXISTS idx_admin_devices_fingerprint
+    ON admin_devices(fingerprint_hash);
+CREATE INDEX IF NOT EXISTS idx_edge_relay_sessions_user_status
+    ON edge_relay_sessions(user_id, status, expires_at DESC);
+CREATE INDEX IF NOT EXISTS idx_admin_access_requests_status
+    ON admin_access_requests(status, requested_at DESC);
+CREATE INDEX IF NOT EXISTS idx_admin_access_requests_admin_device
+    ON admin_access_requests(admin_user_id, device_id);
+CREATE INDEX IF NOT EXISTS idx_management_action_requests_user_status
+    ON management_action_requests(user_id, status, expires_at DESC);
+CREATE INDEX IF NOT EXISTS idx_management_audit_logs_actor_created
+    ON management_audit_logs(actor_user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_private_sample_catalog_overrides_enabled
     ON private_sample_catalog_overrides(is_enabled, session_attachable);
 CREATE INDEX IF NOT EXISTS idx_knowledge_refresh_tasks_scope_created_at
@@ -1672,6 +1770,86 @@ POSTGRES_SCHEMA_STATEMENTS = (
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS admin_devices (
+        device_seq BIGSERIAL PRIMARY KEY,
+        device_id TEXT NOT NULL UNIQUE,
+        role_scope TEXT NOT NULL,
+        owner_user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+        device_name TEXT NOT NULL,
+        mac_hint TEXT,
+        device_public_key TEXT NOT NULL,
+        fingerprint_hash TEXT NOT NULL,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        approved_by TEXT REFERENCES users(user_id) ON DELETE SET NULL,
+        approved_at TEXT,
+        created_at TEXT NOT NULL,
+        last_seen_at TEXT,
+        revoked_at TEXT
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS edge_relay_sessions (
+        relay_seq BIGSERIAL PRIMARY KEY,
+        relay_session_id TEXT NOT NULL UNIQUE,
+        user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+        role TEXT NOT NULL,
+        device_id TEXT NOT NULL REFERENCES admin_devices(device_id) ON DELETE CASCADE,
+        status TEXT NOT NULL,
+        connected_at TEXT NOT NULL,
+        last_heartbeat_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        server_ack_status TEXT
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS admin_access_requests (
+        request_seq BIGSERIAL PRIMARY KEY,
+        request_id TEXT NOT NULL UNIQUE,
+        admin_user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+        device_id TEXT NOT NULL,
+        device_name TEXT,
+        mac_hint TEXT,
+        device_public_key TEXT NOT NULL,
+        fingerprint_hash TEXT NOT NULL,
+        status TEXT NOT NULL,
+        requested_at TEXT NOT NULL,
+        decided_by TEXT REFERENCES users(user_id) ON DELETE SET NULL,
+        decided_at TEXT,
+        decision_note TEXT
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS management_action_requests (
+        action_seq BIGSERIAL PRIMARY KEY,
+        action_request_id TEXT NOT NULL UNIQUE,
+        user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+        role TEXT NOT NULL,
+        device_id TEXT NOT NULL REFERENCES admin_devices(device_id) ON DELETE CASCADE,
+        action_type TEXT NOT NULL,
+        payload_hash TEXT NOT NULL,
+        status TEXT NOT NULL,
+        ack_token_hash TEXT,
+        expires_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        decided_at TEXT
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS management_audit_logs (
+        audit_seq BIGSERIAL PRIMARY KEY,
+        audit_id TEXT NOT NULL UNIQUE,
+        actor_user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+        actor_role TEXT NOT NULL,
+        device_id TEXT,
+        action_type TEXT NOT NULL,
+        target_type TEXT,
+        target_id TEXT,
+        decision TEXT NOT NULL,
+        detail_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS private_sample_catalog_overrides (
         doc_id TEXT PRIMARY KEY,
         is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
@@ -1899,6 +2077,13 @@ POSTGRES_SCHEMA_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_report_sources_report_order ON report_sources(report_id, order_index ASC)",
     "CREATE INDEX IF NOT EXISTS idx_report_files_owner_report_created ON report_files(owner_user_id, report_id, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_report_files_owner_file ON report_files(owner_user_id, file_id)",
+    "CREATE INDEX IF NOT EXISTS idx_admin_devices_owner_active ON admin_devices(owner_user_id, is_active, role_scope)",
+    "CREATE INDEX IF NOT EXISTS idx_admin_devices_fingerprint ON admin_devices(fingerprint_hash)",
+    "CREATE INDEX IF NOT EXISTS idx_edge_relay_sessions_user_status ON edge_relay_sessions(user_id, status, expires_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_admin_access_requests_status ON admin_access_requests(status, requested_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_admin_access_requests_admin_device ON admin_access_requests(admin_user_id, device_id)",
+    "CREATE INDEX IF NOT EXISTS idx_management_action_requests_user_status ON management_action_requests(user_id, status, expires_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_management_audit_logs_actor_created ON management_audit_logs(actor_user_id, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_private_sample_catalog_overrides_enabled ON private_sample_catalog_overrides(is_enabled, session_attachable)",
     "CREATE INDEX IF NOT EXISTS idx_knowledge_refresh_tasks_scope_created_at ON knowledge_refresh_tasks(scope, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_policy_crawl_sources_enabled ON policy_crawl_sources(is_enabled, updated_at DESC)",

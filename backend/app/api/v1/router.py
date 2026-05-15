@@ -10,6 +10,7 @@ from app.api.v1.endpoints.files import router as files_router
 from app.api.v1.endpoints.knowledge import router as knowledge_router
 from app.api.v1.endpoints.kb import router as kb_router
 from app.api.v1.endpoints.memory import router as memory_router
+from app.management.router import router as management_router
 from app.api.v1.endpoints.private_samples import router as private_samples_router
 from app.api.v1.endpoints.rag import router as rag_router
 from app.api.v1.endpoints.report_exports import router as report_exports_router
@@ -30,6 +31,7 @@ router.include_router(files_router, tags=["files"])
 router.include_router(kb_router, tags=["kb"])
 router.include_router(knowledge_router, tags=["knowledge"])
 router.include_router(memory_router, tags=["memory"])
+router.include_router(management_router, tags=["management"])
 router.include_router(me_router, tags=["me"])
 router.include_router(private_samples_router, tags=["private-samples"])
 router.include_router(rag_router, tags=["rag"])

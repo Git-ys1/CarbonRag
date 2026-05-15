@@ -100,7 +100,7 @@ class AuthService:
 
     @staticmethod
     def _default_display_name(*, role: str, user_id: str) -> str:
-        role_label = "管理员" if role == "admin" else "用户"
+        role_label = {"super_admin": "超级管理员", "admin": "管理员"}.get(role, "用户")
         numeric = int(hashlib.sha256(user_id.encode("utf-8")).hexdigest()[:8], 16) % 1_000_000
         return f"{role_label}{numeric:06d}"
 
@@ -195,8 +195,53 @@ class AuthService:
             raise RuntimeError("Seed admin could not be created.")
 
         seed_user = self._row_to_user(seed_row)
+        if seed_user.role != "super_admin":
+            self._promote_seed_super_admin(seed_user.user_id)
+            seed_row = self._fetch_user_by_id(seed_user.user_id)
+            if seed_row is None:
+                raise RuntimeError("Seed super admin could not be reloaded.")
+            seed_user = self._row_to_user(seed_row)
+        self._enforce_single_super_admin(seed_user.user_id)
         self._backfill_owner_fields(seed_user.user_id)
         return seed_user
+
+    def _promote_seed_super_admin(self, user_id: str) -> None:
+        updated_at = self._utcnow().isoformat()
+        with self._connect() as connection:
+            if self.backend_kind == "postgresql":
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "UPDATE users SET role = %s, updated_at = %s WHERE user_id = %s",
+                        ("super_admin", updated_at, user_id),
+                    )
+            else:
+                connection.execute(
+                    "UPDATE users SET role = ?, updated_at = ? WHERE user_id = ?",
+                    ("super_admin", updated_at, user_id),
+                )
+
+    def _enforce_single_super_admin(self, seed_user_id: str) -> None:
+        updated_at = self._utcnow().isoformat()
+        with self._connect() as connection:
+            if self.backend_kind == "postgresql":
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        UPDATE users
+                        SET role = %s, updated_at = %s
+                        WHERE role = %s AND user_id <> %s
+                        """,
+                        ("admin", updated_at, "super_admin", seed_user_id),
+                    )
+            else:
+                connection.execute(
+                    """
+                    UPDATE users
+                    SET role = ?, updated_at = ?
+                    WHERE role = ? AND user_id <> ?
+                    """,
+                    ("admin", updated_at, "super_admin", seed_user_id),
+                )
 
     def _create_seed_admin(self) -> None:
         created_at = self._utcnow().isoformat()
@@ -228,7 +273,7 @@ class AuthService:
                             SEED_ADMIN_USERNAME,
                             None,
                             password_hash,
-                            "admin",
+                            "super_admin",
                             True,
                             True,
                             created_at,
@@ -259,7 +304,7 @@ class AuthService:
                         SEED_ADMIN_USERNAME,
                         None,
                         password_hash,
-                        "admin",
+                        "super_admin",
                         1,
                         1,
                         created_at,
@@ -294,7 +339,7 @@ class AuthService:
                             updated_at = %s
                         WHERE user_id = %s
                         """,
-                        (password_hash, "admin", True, True, updated_at, user_id),
+                        (password_hash, "super_admin", True, True, updated_at, user_id),
                     )
                     cursor.execute("DELETE FROM auth_sessions WHERE user_id = %s", (user_id,))
             else:
@@ -308,7 +353,7 @@ class AuthService:
                         updated_at = ?
                     WHERE user_id = ?
                     """,
-                    (password_hash, "admin", 1, 1, updated_at, user_id),
+                    (password_hash, "super_admin", 1, 1, updated_at, user_id),
                 )
                 connection.execute("DELETE FROM auth_sessions WHERE user_id = ?", (user_id,))
 
@@ -680,7 +725,7 @@ class AuthService:
         if missing_ids:
             raise KeyError(", ".join(missing_ids))
 
-        protected = [row["username"] for row in target_rows if row["role"] == "admin"]
+        protected = [row["username"] for row in target_rows if row["role"] in {"admin", "super_admin"}]
         if protected:
             raise ProtectedAccountDeletionError("Cannot delete administrator accounts.")
 
@@ -758,6 +803,14 @@ class AuthService:
         return self._row_to_user(refreshed)
 
     def update_user(self, *, user_id: str, role: UserRole, is_active: bool) -> AuthenticatedUser:
+        if role == "super_admin":
+            raise ProtectedAccountDeletionError("super_admin role can only be managed by the protected bootstrap flow.")
+        current_row = self._fetch_user_by_id(user_id)
+        if current_row is None:
+            raise KeyError(user_id)
+        current_user = self._row_to_user(current_row)
+        if current_user.role == "super_admin":
+            raise ProtectedAccountDeletionError("super_admin account can only be managed by the protected bootstrap flow.")
         updated_at = self._utcnow().isoformat()
         with self._connect() as connection:
             if self.backend_kind == "postgresql":

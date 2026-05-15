@@ -26,6 +26,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../app/AuthContext";
 import { useSettings } from "../../app/SettingsContext";
 import { useTheme } from "../../app/ThemeContext";
+import { useFeedback } from "../../hooks/useFeedback";
 import { useWorkbenchShellContext } from "../../layouts/WorkbenchShellContext";
 import { discoverProviderModels, testProviderConnection } from "../../services/settings";
 import { bulkDeleteSessions } from "../../services/sessions";
@@ -96,6 +97,7 @@ export function SettingsPage() {
     const { modal, message: messageApi } = AntdApp.useApp();
     const navigate = useNavigate();
     const { user, updateProfile, deleteAccount } = useAuth();
+    const feedback = useFeedback();
     const {
         sessions: shellSessions,
         activeSessionId,
@@ -130,6 +132,18 @@ export function SettingsPage() {
 
     const quickThemePresets = useMemo(() => allPresets.slice(0, 4), [allPresets]);
     const extendedThemePresets = useMemo(() => allPresets.slice(4), [allPresets]);
+
+    useEffect(() => {
+        if (!transportError) {
+            return;
+        }
+        feedback.error({
+            title: "通用设置提示",
+            description: transportError,
+            source: "SettingsPage",
+            key: `settings:${transportError}`,
+        });
+    }, [feedback, transportError]);
 
     useEffect(() => {
         if (!settings) {
@@ -938,8 +952,6 @@ export function SettingsPage() {
 
     return (
         <div className="settings-console">
-            {transportError ? <Alert type="warning" showIcon message={transportError} /> : null}
-
             <Card className="settings-console__hero">
                 <div className="settings-console__hero-layout">
                     <div className="settings-console__hero-copy">
