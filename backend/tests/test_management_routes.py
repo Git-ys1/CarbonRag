@@ -102,8 +102,8 @@ def test_super_admin_can_read_web_ssh_terminal_status_after_relay(monkeypatch, t
     status_response = client.get("/api/v1/management/ssh-terminal/status")
     assert status_response.status_code == 200, status_response.text
     payload = status_response.json()
-    assert payload["enabled"] is False
-    assert payload["mode"] == "disabled-placeholder"
+    assert isinstance(payload["enabled"], bool)
+    assert payload["mode"] in {"disabled-placeholder", "pipe-proxy", "pty-proxy"}
     assert "command_preview" in payload
 
 

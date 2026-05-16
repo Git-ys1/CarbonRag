@@ -34,7 +34,7 @@ def get_terminal_status() -> dict[str, bool | str | int]:
     enabled = bool(getattr(settings, "enable_web_ssh_terminal", False))
     return {
         "enabled": enabled,
-        "mode": "pty-proxy" if enabled else "disabled-placeholder",
+        "mode": _terminal_mode(enabled),
         "status": "ready" if enabled else "disabled-placeholder",
         "command_preview": _command_preview(settings.web_ssh_command),
         "max_session_seconds": int(settings.web_ssh_max_session_seconds),
@@ -48,14 +48,17 @@ async def run_terminal_session(
 ) -> None:
     ensure_web_ssh_enabled()
     if os.name == "nt" or pty is None:
-        await websocket.send_json(
-            {
-                "type": "error",
-                "detail": "Web SSH terminal requires a POSIX backend host with PTY support.",
-            }
-        )
+        await _run_pipe_terminal_session(websocket, audit_input=audit_input)
         return
 
+    await _run_pty_terminal_session(websocket, audit_input=audit_input)
+
+
+async def _run_pty_terminal_session(
+    websocket: WebSocket,
+    *,
+    audit_input: Callable[[str], None] | None = None,
+) -> None:
     settings = get_settings()
     argv = _terminal_argv(settings.web_ssh_command)
     started_at = time.monotonic()
@@ -137,6 +140,105 @@ async def run_terminal_session(
             await websocket.send_json({"type": "status", "status": "closed"})
         except Exception:
             pass
+
+
+async def _run_pipe_terminal_session(
+    websocket: WebSocket,
+    *,
+    audit_input: Callable[[str], None] | None = None,
+) -> None:
+    settings = get_settings()
+    argv = _terminal_argv(settings.web_ssh_command)
+    started_at = time.monotonic()
+    process: subprocess.Popen[bytes] | None = None
+    input_buffer = ""
+    try:
+        process = subprocess.Popen(
+            argv,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            cwd=str(REPO_ROOT),
+            close_fds=True,
+        )
+        await websocket.send_json(
+            {
+                "type": "status",
+                "status": "started",
+                "command": _command_preview(settings.web_ssh_command),
+                "mode": "pipe-proxy",
+            }
+        )
+
+        async def pump_output() -> None:
+            assert process is not None
+            assert process.stdout is not None
+            while process.poll() is None:
+                try:
+                    data = await asyncio.to_thread(process.stdout.read, 1)
+                except OSError:
+                    break
+                if not data:
+                    break
+                await websocket.send_json({"type": "output", "data": data.decode("utf-8", "replace")})
+
+        async def pump_input() -> None:
+            nonlocal input_buffer
+            assert process is not None
+            assert process.stdin is not None
+            while process.poll() is None:
+                if time.monotonic() - started_at > int(settings.web_ssh_max_session_seconds):
+                    await websocket.send_json({"type": "error", "detail": "Web SSH terminal session expired."})
+                    break
+                raw = await websocket.receive_text()
+                if len(raw.encode("utf-8", "replace")) > MAX_TERMINAL_INPUT_BYTES:
+                    await websocket.send_json({"type": "error", "detail": "Terminal input message is too large."})
+                    continue
+                message = _parse_terminal_message(raw)
+                message_type = message.get("type")
+                if message_type == "input":
+                    value = str(message.get("data") or "")
+                    try:
+                        process.stdin.write(value.encode("utf-8", "replace"))
+                        process.stdin.flush()
+                    except OSError:
+                        break
+                    input_buffer = _audit_terminal_input(input_buffer, value, audit_input)
+                elif message_type == "resize":
+                    continue
+                elif message_type == "close":
+                    break
+                else:
+                    await websocket.send_json({"type": "error", "detail": "Unsupported terminal message type."})
+
+        output_task = asyncio.create_task(pump_output())
+        input_task = asyncio.create_task(pump_input())
+        done, pending = await asyncio.wait({output_task, input_task}, return_when=asyncio.FIRST_COMPLETED)
+        for task in pending:
+            task.cancel()
+        for task in done:
+            task.result()
+    except WebSocketDisconnect:
+        return
+    except OSError as exc:
+        await websocket.send_json({"type": "error", "detail": f"Terminal process error: {exc}"})
+    finally:
+        if process and process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                process.kill()
+        try:
+            await websocket.send_json({"type": "status", "status": "closed"})
+        except Exception:
+            pass
+
+
+def _terminal_mode(enabled: bool) -> str:
+    if not enabled:
+        return "disabled-placeholder"
+    return "pipe-proxy" if os.name == "nt" else "pty-proxy"
 
 
 def _terminal_argv(command: str) -> list[str]:
