@@ -303,7 +303,7 @@ export function AppShell() {
                         icon={<SafetyCertificateOutlined />}
                         onClick={() => navigate(SUPER_ADMIN_NAV_ITEM.path ?? "/super-admin")}
                     >
-                        超级管理员
+                        super admin
                     </Button>
                 ) : null}
                 {user.role === "admin" || user.role === "super_admin" ? (
@@ -430,7 +430,7 @@ function getUserInitial(user: { display_name?: string | null; username: string }
 
 function roleLabel(role: string) {
     if (role === "super_admin") {
-        return "超级管理员";
+        return "super admin";
     }
     if (role === "admin") {
         return "管理员";

@@ -1,4 +1,5 @@
 import { httpClient } from "./http";
+import { buildActionAckHeaders } from "./managementApi";
 import type {
     AdminFeedbackOverview,
     AdminPrivateSampleItem,
@@ -34,17 +35,21 @@ export async function listAdminUsers() {
 }
 
 export async function updateAdminUser(userId: string, payload: UpdateAdminUserRequest) {
-    const response = await httpClient.patch<AdminUserSummary>(`/v1/admin/users/${userId}`, payload);
+    const headers = await buildActionAckHeaders("ADMIN_USER_UPDATE", "user", userId, payload);
+    const response = await httpClient.patch<AdminUserSummary>(`/v1/admin/users/${userId}`, payload, { headers });
     return response.data;
 }
 
 export async function resetAdminUserPassword(userId: string) {
-    const response = await httpClient.post<ResetPasswordResponse>(`/v1/admin/users/${userId}/reset-password`);
+    const payload = {};
+    const headers = await buildActionAckHeaders("ADMIN_USER_RESET_PASSWORD", "user", userId, payload);
+    const response = await httpClient.post<ResetPasswordResponse>(`/v1/admin/users/${userId}/reset-password`, payload, { headers });
     return response.data;
 }
 
 export async function deleteAdminUsers(payload: DeleteAdminUsersRequest) {
-    const response = await httpClient.delete<DeleteAdminUsersResponse>("/v1/admin/users", { data: payload });
+    const headers = await buildActionAckHeaders("ADMIN_USER_DELETE", "user_batch", "batch", payload);
+    const response = await httpClient.delete<DeleteAdminUsersResponse>("/v1/admin/users", { data: payload, headers });
     return response.data;
 }
 
@@ -64,7 +69,9 @@ export async function listPolicyShowcaseSources() {
 }
 
 export async function runPolicyShowcaseSource(sourceId: string) {
-    const response = await httpClient.post<PolicyShowcaseStatus>(`/v1/admin/policy-sources/${sourceId}/run`, {});
+    const payload = {};
+    const headers = await buildActionAckHeaders("ADMIN_POLICY_SOURCE_RUN", "policy_source", sourceId, payload);
+    const response = await httpClient.post<PolicyShowcaseStatus>(`/v1/admin/policy-sources/${sourceId}/run`, payload, { headers });
     return response.data;
 }
 
@@ -102,29 +109,38 @@ export async function listPolicyCrawlerSources() {
 }
 
 export async function createPolicyCrawlerSource(payload: PolicyCrawlerSourceUpsertRequest) {
-    const response = await httpClient.post<PolicyCrawlerSourceSummary>("/v1/admin/policy-crawler/sources", payload);
+    const headers = await buildActionAckHeaders("POLICY_CRAWLER_SOURCE_CREATE", "policy_crawler_source", "new", payload);
+    const response = await httpClient.post<PolicyCrawlerSourceSummary>("/v1/admin/policy-crawler/sources", payload, { headers });
     return response.data;
 }
 
 export async function updatePolicyCrawlerSource(sourceId: string, payload: PolicyCrawlerSourceUpsertRequest) {
+    const headers = await buildActionAckHeaders("POLICY_CRAWLER_SOURCE_UPDATE", "policy_crawler_source", sourceId, payload);
     const response = await httpClient.patch<PolicyCrawlerSourceSummary>(
         `/v1/admin/policy-crawler/sources/${sourceId}`,
         payload,
+        { headers },
     );
     return response.data;
 }
 
 export async function deletePolicyCrawlerSource(sourceId: string) {
+    const payload = {};
+    const headers = await buildActionAckHeaders("POLICY_CRAWLER_SOURCE_DELETE", "policy_crawler_source", sourceId, payload);
     const response = await httpClient.delete<{ status: string; source_id: string }>(
         `/v1/admin/policy-crawler/sources/${sourceId}`,
+        { data: payload, headers },
     );
     return response.data;
 }
 
 export async function importRecommendedPolicyCrawlerSources() {
+    const payload = {};
+    const headers = await buildActionAckHeaders("POLICY_CRAWLER_RECOMMENDED_IMPORT", "policy_crawler_source", "recommended", payload);
     const response = await httpClient.post<PolicyCrawlerRecommendedImportSummary>(
         "/v1/admin/policy-crawler/sources/recommended/import",
-        {},
+        payload,
+        { headers },
     );
     return response.data;
 }
@@ -139,10 +155,12 @@ export async function dryRunPolicyCrawlerSource(sourceId: string) {
 }
 
 export async function runPolicyCrawlerSource(sourceId: string) {
+    const payload = {};
+    const headers = await buildActionAckHeaders("POLICY_CRAWLER_SOURCE_RUN", "policy_crawler_source", sourceId, payload);
     const response = await httpClient.post<PolicyCrawlerRunSummary>(
         `/v1/admin/policy-crawler/sources/${sourceId}/run`,
-        {},
-        crawlerRequestConfig,
+        payload,
+        { ...crawlerRequestConfig, headers },
     );
     return response.data;
 }
@@ -173,18 +191,33 @@ export async function listPolicyCrawlerCandidates(
 }
 
 export async function publishPolicyCrawlerCandidate(candidateId: string) {
+    const payload = {};
+    const headers = await buildActionAckHeaders(
+        "POLICY_CRAWLER_CANDIDATE_PUBLISH_LEGACY",
+        "policy_crawler_candidate",
+        candidateId,
+        payload,
+    );
     const response = await httpClient.post<PolicyCrawlerCandidateSummary>(
         `/v1/admin/policy-crawler/candidates/${candidateId}/publish`,
-        {},
+        payload,
+        { headers },
     );
     return response.data;
 }
 
 export async function publishPolicyCrawlerCandidateToRag(candidateId: string) {
+    const payload = {};
+    const headers = await buildActionAckHeaders(
+        "POLICY_CRAWLER_CANDIDATE_PUBLISH_TO_RAG",
+        "policy_crawler_candidate",
+        candidateId,
+        payload,
+    );
     const response = await httpClient.post<PolicyCrawlerCandidateSummary>(
         `/v1/admin/policy-crawler/candidates/${candidateId}/publish-to-rag`,
-        {},
-        crawlerRequestConfig,
+        payload,
+        { ...crawlerRequestConfig, headers },
     );
     return response.data;
 }
@@ -198,15 +231,24 @@ export async function getPolicyCrawlerCandidateArtifacts(candidateId: string) {
 }
 
 export async function rejectPolicyCrawlerCandidate(candidateId: string) {
+    const payload = {};
+    const headers = await buildActionAckHeaders(
+        "POLICY_CRAWLER_CANDIDATE_REJECT",
+        "policy_crawler_candidate",
+        candidateId,
+        payload,
+    );
     const response = await httpClient.post<PolicyCrawlerCandidateSummary>(
         `/v1/admin/policy-crawler/candidates/${candidateId}/reject`,
-        {},
+        payload,
+        { headers },
     );
     return response.data;
 }
 
 export async function updateAdminPrivateSample(docId: string, payload: UpdateAdminPrivateSampleRequest) {
-    const response = await httpClient.patch<AdminPrivateSampleItem>(`/v1/admin/private-samples/${docId}`, payload);
+    const headers = await buildActionAckHeaders("ADMIN_PRIVATE_SAMPLE_UPDATE", "private_sample", docId, payload);
+    const response = await httpClient.patch<AdminPrivateSampleItem>(`/v1/admin/private-samples/${docId}`, payload, { headers });
     return response.data;
 }
 
@@ -216,7 +258,8 @@ export async function listKnowledgeRefreshTasks() {
 }
 
 export async function triggerKnowledgeRefresh(payload: TriggerKnowledgeRefreshRequest) {
-    const response = await httpClient.post<KnowledgeRefreshTask>("/v1/admin/knowledge-refresh-tasks", payload);
+    const headers = await buildActionAckHeaders("ADMIN_KNOWLEDGE_REFRESH_TRIGGER", "knowledge_refresh", "trigger", payload);
+    const response = await httpClient.post<KnowledgeRefreshTask>("/v1/admin/knowledge-refresh-tasks", payload, { headers });
     return response.data;
 }
 

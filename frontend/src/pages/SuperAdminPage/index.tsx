@@ -99,7 +99,7 @@ export function SuperAdminPage() {
             }
         } catch (error) {
             feedback.error({
-                title: "无法读取超级管理员控制台",
+                title: "无法读取 super admin 控制台",
                 description: extractErrorMessage(error),
                 source: "SuperAdminPage",
             });
@@ -293,7 +293,7 @@ export function SuperAdminPage() {
         <div className="super-admin-page">
             <div className="super-admin-page__hero">
                 <Space direction="vertical" size={6}>
-                    <Typography.Title level={2}>超级管理员控制台</Typography.Title>
+                    <Typography.Title level={2}>super admin 控制台</Typography.Title>
                     <Typography.Text type="secondary">
                         管理设备绑定、管理员恢复申请、Relay 状态和审计记录。Web SSH 当前保持关闭。
                     </Typography.Text>
@@ -308,7 +308,7 @@ export function SuperAdminPage() {
                     <Descriptions column={1} size="small" title={<Space><SafetyCertificateOutlined />权限状态</Space>}>
                         <Descriptions.Item label="当前账号">{user?.display_name || user?.username}</Descriptions.Item>
                         <Descriptions.Item label="角色">
-                            <Tag color="gold">超级管理员</Tag>
+                            <Tag color="gold">super admin</Tag>
                         </Descriptions.Item>
                         <Descriptions.Item label="当前设备">
                             <Typography.Text code>{shortId(currentDevice)}</Typography.Text>
@@ -332,7 +332,7 @@ export function SuperAdminPage() {
                 </Card>
                 <Card>
                     <Descriptions column={1} size="small" title={<Space><ApiOutlined />Edge Relay</Space>}>
-                        <Descriptions.Item label="超级管理员在线">
+                        <Descriptions.Item label="super admin 在线">
                             <Tag color={relay?.super_admin_online ? "green" : "default"}>
                                 {relay?.super_admin_online ? "在线" : "未连接"}
                             </Tag>
@@ -427,7 +427,7 @@ export function SuperAdminPage() {
 
 function roleLabel(role: string) {
     if (role === "super_admin") {
-        return "超级管理员";
+        return "super admin";
     }
     if (role === "admin") {
         return "管理员";

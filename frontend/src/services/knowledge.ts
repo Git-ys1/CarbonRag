@@ -3,6 +3,7 @@ import { listKnowledgeRefreshTasks, triggerKnowledgeRefresh } from "./admin";
 import { getSession, listSessions, replaceAttachedPrivateSamples } from "./sessions";
 import { listPrivateSamples } from "./privateSamples";
 import { httpClient } from "./http";
+import { buildActionAckHeaders } from "./managementApi";
 import { listSessionReports } from "./reports";
 import type { PrivateSampleCatalogItem } from "../types/privateSample";
 import type { UploadedFile, SessionSummary } from "../types/session";
@@ -194,7 +195,9 @@ export async function listKnowledgeTasks(): Promise<KnowledgeTask[]> {
 
 export async function triggerKnowledgeScan(): Promise<KnowledgeTask> {
     const remote = await tryRemote(async () => {
-        const response = await httpClient.post<RemoteKnowledgeTaskResponse>("/v1/admin/knowledge-tasks/scan", {});
+        const payload = {};
+        const headers = await buildActionAckHeaders("ADMIN_KNOWLEDGE_TASK_SCAN", "knowledge_task", "scan", payload);
+        const response = await httpClient.post<RemoteKnowledgeTaskResponse>("/v1/admin/knowledge-tasks/scan", payload, { headers });
         return pickKnowledgeTask(response.data);
     });
     if (remote) {
@@ -212,7 +215,9 @@ export async function triggerKnowledgeScan(): Promise<KnowledgeTask> {
 
 export async function triggerKnowledgeRebuild(): Promise<KnowledgeTask> {
     const remote = await tryRemote(async () => {
-        const response = await httpClient.post<RemoteKnowledgeTaskResponse>("/v1/admin/knowledge-tasks/rebuild", {});
+        const payload = {};
+        const headers = await buildActionAckHeaders("ADMIN_KNOWLEDGE_TASK_REBUILD", "knowledge_task", "rebuild", payload);
+        const response = await httpClient.post<RemoteKnowledgeTaskResponse>("/v1/admin/knowledge-tasks/rebuild", payload, { headers });
         return pickKnowledgeTask(response.data);
     });
     if (remote) {
@@ -230,7 +235,9 @@ export async function triggerKnowledgeRebuild(): Promise<KnowledgeTask> {
 
 export async function retryKnowledgeTask(taskId: string): Promise<KnowledgeTask> {
     const remote = await tryRemote(async () => {
-        const response = await httpClient.post<RemoteKnowledgeTask>(`/v1/admin/knowledge-tasks/${taskId}/retry`, {});
+        const payload = {};
+        const headers = await buildActionAckHeaders("ADMIN_KNOWLEDGE_TASK_RETRY", "knowledge_task", taskId, payload);
+        const response = await httpClient.post<RemoteKnowledgeTask>(`/v1/admin/knowledge-tasks/${taskId}/retry`, payload, { headers });
         return mapRemoteKnowledgeTask(response.data);
     });
     if (remote) {
@@ -250,7 +257,8 @@ export async function updateAdminKnowledgeItem(
     knowledgeItemId: string,
     payload: Pick<KnowledgeItem, "is_enabled" | "session_attachable">,
 ): Promise<KnowledgeItem> {
-    const response = await httpClient.patch<RemoteKnowledgeItem>(`/v1/admin/knowledge-items/${knowledgeItemId}`, payload);
+    const headers = await buildActionAckHeaders("ADMIN_KNOWLEDGE_ITEM_UPDATE", "knowledge_item", knowledgeItemId, payload);
+    const response = await httpClient.patch<RemoteKnowledgeItem>(`/v1/admin/knowledge-items/${knowledgeItemId}`, payload, { headers });
     return mapRemoteKnowledgeItem(response.data);
 }
 

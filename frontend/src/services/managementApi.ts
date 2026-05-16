@@ -132,7 +132,7 @@ export async function getOrCreateManagementDeviceIdentity(): Promise<ManagementD
     return { deviceId, publicKeyJwk, publicKeyJson, fingerprintHash };
 }
 
-async function buildActionAckHeaders(
+export async function buildActionAckHeaders(
     actionType: string,
     targetType: string,
     targetId: string,
@@ -170,7 +170,7 @@ async function buildSignedManagementFrame({
         protocol_version: "1.0",
         user_id: userId,
         device_id: deviceId,
-        timestamp: new Date().toISOString(),
+        timestamp: managementFrameTimestamp(),
         nonce: randomNonce(),
         requested_action: requestedAction,
         payload_hash: payloadHash,
@@ -258,6 +258,12 @@ function randomNonce() {
     const bytes = new Uint8Array(24);
     crypto.getRandomValues(bytes);
     return base64Url(bytes.buffer);
+}
+
+function managementFrameTimestamp() {
+    // Pydantic serializes UTC datetimes at second precision as "...Z"; avoid
+    // signing browser millisecond text that the backend normalizes to microseconds.
+    return new Date().toISOString().replace(/\.\d{3}Z$/u, "Z");
 }
 
 async function sha256Hex(value: string) {

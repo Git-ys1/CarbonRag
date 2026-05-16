@@ -6,6 +6,7 @@ import {
     MessageOutlined,
     PlusOutlined,
     ReloadOutlined,
+    SafetyCertificateOutlined,
     SyncOutlined,
     TeamOutlined,
 } from "@ant-design/icons";
@@ -32,6 +33,7 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../app/AuthContext";
 import { useFeedback } from "../../hooks/useFeedback";
 import { FilePreviewDrawer } from "../../components/FilePreviewDrawer";
@@ -229,10 +231,12 @@ const normalizedApprovedPolicyCrawlerSources: PolicyCrawlerSourceSummary[] = app
 });
 
 export function AdminPlaceholderPage() {
+    const navigate = useNavigate();
     const { user: currentUser } = useAuth();
     const feedback = useFeedback();
     const [loading, setLoading] = useState(true);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
+    const [managementRelayRequired, setManagementRelayRequired] = useState(false);
     const [systemStatus, setSystemStatus] = useState<AdminSystemStatus | null>(null);
     const [users, setUsers] = useState<AdminUserSummary[]>([]);
     const [feedbackOverview, setFeedbackOverview] = useState<AdminFeedbackOverview | null>(null);
@@ -633,6 +637,7 @@ export function AdminPlaceholderPage() {
     async function loadAdminWorkspace() {
         setLoading(true);
         setErrorMessage(null);
+        setManagementRelayRequired(false);
         try {
             const [
                 nextUsers,
@@ -673,7 +678,9 @@ export function AdminPlaceholderPage() {
                 setPolicyShowcaseStatus(null);
             }
         } catch (error) {
-            setErrorMessage(extractDetailMessage(error) ?? "加载管理员工作台失败。");
+            const detail = extractDetailMessage(error) ?? "加载管理员工作台失败。";
+            setErrorMessage(detail);
+            setManagementRelayRequired(isManagementRelayRequired(detail));
         } finally {
             setLoading(false);
         }
@@ -967,6 +974,40 @@ export function AdminPlaceholderPage() {
     async function refreshSystemStatus() {
         const nextStatus = await getAdminSystemStatus();
         setSystemStatus(nextStatus);
+    }
+
+    if (!loading && managementRelayRequired) {
+        return (
+            <Space className="admin-console" direction="vertical" size={18}>
+                <Card className="admin-console__hero">
+                    <div className="admin-console__hero-layout">
+                        <div className="admin-console__hero-copy">
+                            <Typography.Text className="admin-console__eyebrow">CarbonRag 管理后台</Typography.Text>
+                            <Typography.Title level={2}>需要建立管理 Relay</Typography.Title>
+                            <Typography.Paragraph>
+                                当前后端已经启用 Management Relay 校验。管理员后台不会再以空数据形式放行；请先完成设备校验并建立 Relay。
+                            </Typography.Paragraph>
+                        </div>
+                        <Space className="admin-console__actions" size={10} wrap>
+                            <Button icon={<ReloadOutlined />} onClick={() => void loadAdminWorkspace()}>
+                                重新检查
+                            </Button>
+                            {currentUser?.role === "super_admin" ? (
+                                <Button type="primary" icon={<SafetyCertificateOutlined />} onClick={() => navigate("/super-admin")}>
+                                    去 super admin 控制台
+                                </Button>
+                            ) : null}
+                        </Space>
+                    </div>
+                </Card>
+                <Alert
+                    showIcon
+                    type="warning"
+                    message="Active management relay required."
+                    description="只读统计、用户列表、爬虫和知识任务都需要 active relay。未通过 SA/AD 帧校验前，不展示旧缓存或空白管理数据。"
+                />
+            </Space>
+        );
     }
 
     return (
@@ -2218,7 +2259,7 @@ const statusColorMap: Record<string, string> = {
 const roleLabelMap = {
     user: "普通用户",
     admin: "管理员",
-    super_admin: "超级管理员",
+    super_admin: "super admin",
 } as const;
 
 const libraryScopeLabelMap = {
@@ -2519,4 +2560,8 @@ function extractDetailMessage(value: unknown): string | null {
         return candidate.detail;
     }
     return typeof candidate.message === "string" && candidate.message.trim() ? candidate.message : null;
+}
+
+function isManagementRelayRequired(value: string): boolean {
+    return /Active (super admin )?management relay required/i.test(value);
 }

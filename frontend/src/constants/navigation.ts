@@ -41,7 +41,7 @@ export const ADMIN_NAV_ITEM: NavigationItem = {
 export const SUPER_ADMIN_NAV_ITEM: NavigationItem = {
     key: "super-admin",
     path: "/super-admin",
-    label: "超级管理员",
+    label: "super admin",
     roles: ["super_admin"],
 };
 
