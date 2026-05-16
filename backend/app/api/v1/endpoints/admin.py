@@ -7,14 +7,21 @@ from app.admin.schemas import (
     AdminPrivateSampleItem,
     AdminSystemStatus,
     AdminUserSummary,
+    CreateAdminUserRequest,
     DeleteAdminUsersRequest,
     DeleteAdminUsersResponse,
     KnowledgeRefreshTask,
+    PolicyCrawlerAutoRagKbStatus,
+    PolicyCrawlerBatchPublishRequest,
+    PolicyCrawlerBatchPublishResponse,
     PolicyCrawlerCandidateStatus,
     PolicyCrawlerCandidateArtifactsSummary,
+    PolicyCrawlerCandidatePage,
     PolicyCrawlerCandidateSummary,
     PolicyCrawlerDryRunSummary,
     PolicyCrawlerRecommendedImportSummary,
+    PolicyCrawlerRunPage,
+    PolicyCrawlerRunRequest,
     PolicyCrawlerRunSummary,
     PolicyCrawlerSourceSummary,
     PolicyCrawlerSourceUpsertRequest,
@@ -65,15 +72,34 @@ def list_admin_users(
     return get_admin_service().list_users()
 
 
+@router.post("/users", response_model=AdminUserSummary)
+def create_admin_user(
+    payload: CreateAdminUserRequest,
+    current_user: AuthenticatedUser = Depends(require_management_action_ack("ADMIN_USER_CREATE", "user", default_target_id="new")),
+) -> AdminUserSummary:
+    try:
+        return get_admin_service().create_user(payload=payload, actor_role=current_user.role)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.patch("/users/{user_id}", response_model=AdminUserSummary)
 def update_admin_user(
     user_id: str,
     payload: UpdateAdminUserRequest,
     current_user: AuthenticatedUser = Depends(require_management_action_ack("ADMIN_USER_UPDATE", "user", target_param="user_id")),
 ) -> AdminUserSummary:
-    del current_user
     try:
-        get_admin_service().update_user(user_id=user_id, role=payload.role, is_active=payload.is_active)
+        get_admin_service().update_user(
+            user_id=user_id,
+            role=payload.role,
+            is_active=payload.is_active,
+            actor_role=current_user.role,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except KeyError:
         raise HTTPException(status_code=404, detail="User not found.")
     return next(item for item in get_admin_service().list_users() if item.user_id == user_id)
@@ -278,12 +304,14 @@ def dry_run_admin_policy_crawler_source(
 @router.post("/policy-crawler/sources/{source_id}/run", response_model=PolicyCrawlerRunSummary)
 def run_admin_policy_crawler_source(
     source_id: str,
+    payload: PolicyCrawlerRunRequest | None = None,
     current_user: AuthenticatedUser = Depends(require_management_action_ack("POLICY_CRAWLER_SOURCE_RUN", "policy_crawler_source", target_param="source_id")),
 ) -> PolicyCrawlerRunSummary:
     try:
         return get_admin_service().run_policy_crawler_source(
             source_id=source_id,
             requested_by_user_id=current_user.user_id,
+            payload=payload,
         )
     except KeyError:
         raise HTTPException(status_code=404, detail="Policy crawler source not found.")
@@ -298,25 +326,62 @@ def run_admin_policy_crawler_source(
         raise HTTPException(status_code=500, detail="Policy crawler run failed. Check run status and server logs.") from exc
 
 
-@router.get("/policy-crawler/runs", response_model=list[PolicyCrawlerRunSummary])
+@router.get("/policy-crawler/runs", response_model=PolicyCrawlerRunPage)
 def list_admin_policy_crawler_runs(
     source_id: str | None = None,
-    limit: int = 20,
+    status: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+    sort_by: str = "started_at",
+    sort_order: str = "desc",
     current_user: AuthenticatedUser = Depends(require_management_active_relay),
-) -> list[PolicyCrawlerRunSummary]:
+) -> PolicyCrawlerRunPage:
     del current_user
-    return get_admin_service().list_policy_crawler_runs(source_id=source_id, limit=limit)
+    return get_admin_service().list_policy_crawler_runs_page(
+        source_id=source_id,
+        status=status,
+        page=page,
+        page_size=page_size,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    )
 
 
-@router.get("/policy-crawler/candidates", response_model=list[PolicyCrawlerCandidateSummary])
+@router.get("/policy-crawler/candidates", response_model=PolicyCrawlerCandidatePage)
 def list_admin_policy_crawler_candidates(
     status: PolicyCrawlerCandidateStatus | None = None,
     source_id: str | None = None,
-    limit: int = 50,
+    run_id: str | None = None,
+    rag_pipeline_status: str | None = None,
+    topic_class: str | None = None,
+    query: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+    sort_by: str = "updated_at",
+    sort_order: str = "desc",
     current_user: AuthenticatedUser = Depends(require_management_active_relay),
-) -> list[PolicyCrawlerCandidateSummary]:
+) -> PolicyCrawlerCandidatePage:
     del current_user
-    return get_admin_service().list_policy_crawler_candidates(status=status, source_id=source_id, limit=limit)
+    return get_admin_service().list_policy_crawler_candidates_page(
+        status=status,
+        source_id=source_id,
+        run_id=run_id,
+        rag_pipeline_status=rag_pipeline_status,
+        topic_class=topic_class,
+        query=query,
+        page=page,
+        page_size=page_size,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    )
+
+
+@router.get("/policy-crawler/auto-rag-kb/status", response_model=PolicyCrawlerAutoRagKbStatus)
+def get_admin_policy_crawler_auto_rag_kb_status(
+    current_user: AuthenticatedUser = Depends(require_management_active_relay),
+) -> PolicyCrawlerAutoRagKbStatus:
+    del current_user
+    return get_admin_service().get_policy_crawler_auto_rag_kb_status()
 
 
 @router.get("/policy-crawler/candidates/{candidate_id}/artifacts", response_model=PolicyCrawlerCandidateArtifactsSummary)
@@ -368,6 +433,21 @@ def publish_admin_policy_crawler_candidate_to_rag(
     except Exception as exc:
         logger.exception("Policy crawler candidate RAG publish failed; candidate_id=%s", candidate_id)
         raise HTTPException(status_code=500, detail=f"Candidate RAG publish failed: {exc}") from exc
+
+
+@router.post("/policy-crawler/candidates/batch-publish-to-rag", response_model=PolicyCrawlerBatchPublishResponse)
+def batch_publish_admin_policy_crawler_candidates_to_rag(
+    payload: PolicyCrawlerBatchPublishRequest,
+    current_user: AuthenticatedUser = Depends(require_management_action_ack("POLICY_CRAWLER_CANDIDATE_BATCH_PUBLISH_TO_RAG", "policy_crawler_candidate", default_target_id="batch")),
+) -> PolicyCrawlerBatchPublishResponse:
+    try:
+        return get_admin_service().batch_publish_policy_crawler_candidates_to_rag(
+            candidate_ids=payload.candidate_ids,
+            reviewed_by_user_id=current_user.user_id,
+            skip_duplicates=payload.skip_duplicates,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/policy-crawler/candidates/{candidate_id}/reject", response_model=PolicyCrawlerCandidateSummary)

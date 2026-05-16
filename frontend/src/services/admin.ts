@@ -5,13 +5,20 @@ import type {
     AdminPrivateSampleItem,
     AdminSystemStatus,
     AdminUserSummary,
+    CreateAdminUserRequest,
     DeleteAdminUsersRequest,
     DeleteAdminUsersResponse,
     KnowledgeRefreshTask,
     PolicyCrawlerCandidateStatus,
+    PolicyCrawlerAutoRagKbStatus,
+    PolicyCrawlerBatchPublishRequest,
+    PolicyCrawlerBatchPublishResponse,
     PolicyCrawlerCandidateArtifactsSummary,
+    PolicyCrawlerCandidatePage,
     PolicyCrawlerCandidateSummary,
     PolicyCrawlerDryRunSummary,
+    PolicyCrawlerRunPage,
+    PolicyCrawlerRunRequest,
     PolicyCrawlerRecommendedImportSummary,
     PolicyCrawlerRunSummary,
     PolicyCrawlerSourceSummary,
@@ -31,6 +38,12 @@ const crawlerRequestConfig = { timeout: 120000 };
 
 export async function listAdminUsers() {
     const response = await httpClient.get<AdminUserSummary[]>("/v1/admin/users");
+    return response.data;
+}
+
+export async function createAdminUser(payload: CreateAdminUserRequest) {
+    const headers = await buildActionAckHeaders("ADMIN_USER_CREATE", "user", "new", payload);
+    const response = await httpClient.post<AdminUserSummary>("/v1/admin/users", payload, { headers });
     return response.data;
 }
 
@@ -154,8 +167,7 @@ export async function dryRunPolicyCrawlerSource(sourceId: string) {
     return response.data;
 }
 
-export async function runPolicyCrawlerSource(sourceId: string) {
-    const payload = {};
+export async function runPolicyCrawlerSource(sourceId: string, payload: PolicyCrawlerRunRequest = {}) {
     const headers = await buildActionAckHeaders("POLICY_CRAWLER_SOURCE_RUN", "policy_crawler_source", sourceId, payload);
     const response = await httpClient.post<PolicyCrawlerRunSummary>(
         `/v1/admin/policy-crawler/sources/${sourceId}/run`,
@@ -165,28 +177,60 @@ export async function runPolicyCrawlerSource(sourceId: string) {
     return response.data;
 }
 
-export async function listPolicyCrawlerRuns(sourceId?: string, limit = 20) {
-    const response = await httpClient.get<PolicyCrawlerRunSummary[]>("/v1/admin/policy-crawler/runs", {
+export async function listPolicyCrawlerRuns(params: {
+    sourceId?: string;
+    status?: string;
+    page?: number;
+    pageSize?: number;
+    sortBy?: string;
+    sortOrder?: "asc" | "desc";
+} = {}) {
+    const response = await httpClient.get<PolicyCrawlerRunPage>("/v1/admin/policy-crawler/runs", {
         params: {
-            source_id: sourceId,
-            limit,
+            source_id: params.sourceId,
+            status: params.status,
+            page: params.page,
+            page_size: params.pageSize,
+            sort_by: params.sortBy,
+            sort_order: params.sortOrder,
         },
     });
     return response.data;
 }
 
-export async function listPolicyCrawlerCandidates(
-    status?: PolicyCrawlerCandidateStatus,
-    sourceId?: string,
-    limit = 50,
-) {
-    const response = await httpClient.get<PolicyCrawlerCandidateSummary[]>("/v1/admin/policy-crawler/candidates", {
+export async function listPolicyCrawlerCandidates(params: {
+    status?: PolicyCrawlerCandidateStatus;
+    sourceId?: string;
+    runId?: string;
+    ragPipelineStatus?: string;
+    topicClass?: string;
+    query?: string;
+    page?: number;
+    pageSize?: number;
+    sortBy?: string;
+    sortOrder?: "asc" | "desc";
+} = {}) {
+    const response = await httpClient.get<PolicyCrawlerCandidatePage>("/v1/admin/policy-crawler/candidates", {
         params: {
-            status,
-            source_id: sourceId,
-            limit,
+            status: params.status,
+            source_id: params.sourceId,
+            run_id: params.runId,
+            rag_pipeline_status: params.ragPipelineStatus,
+            topic_class: params.topicClass,
+            query: params.query,
+            page: params.page,
+            page_size: params.pageSize,
+            sort_by: params.sortBy,
+            sort_order: params.sortOrder,
         },
     });
+    return response.data;
+}
+
+export async function getPolicyCrawlerAutoRagKbStatus() {
+    const response = await httpClient.get<PolicyCrawlerAutoRagKbStatus>(
+        "/v1/admin/policy-crawler/auto-rag-kb/status",
+    );
     return response.data;
 }
 
@@ -216,6 +260,21 @@ export async function publishPolicyCrawlerCandidateToRag(candidateId: string) {
     );
     const response = await httpClient.post<PolicyCrawlerCandidateSummary>(
         `/v1/admin/policy-crawler/candidates/${candidateId}/publish-to-rag`,
+        payload,
+        { ...crawlerRequestConfig, headers },
+    );
+    return response.data;
+}
+
+export async function batchPublishPolicyCrawlerCandidatesToRag(payload: PolicyCrawlerBatchPublishRequest) {
+    const headers = await buildActionAckHeaders(
+        "POLICY_CRAWLER_CANDIDATE_BATCH_PUBLISH_TO_RAG",
+        "policy_crawler_candidate",
+        "batch",
+        payload,
+    );
+    const response = await httpClient.post<PolicyCrawlerBatchPublishResponse>(
+        "/v1/admin/policy-crawler/candidates/batch-publish-to-rag",
         payload,
         { ...crawlerRequestConfig, headers },
     );

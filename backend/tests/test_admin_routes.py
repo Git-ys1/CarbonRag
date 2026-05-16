@@ -123,6 +123,47 @@ def test_admin_routes_manage_users_private_samples_and_refresh(monkeypatch, tmp_
     assert users_response.status_code == 200
     assert any(item["user_id"] == user_id for item in users_response.json())
 
+    create_user_payload = {
+        "username": "created_user",
+        "password": TEST_PASSWORD,
+        "display_name": "created_user_display",
+        "role": "user",
+    }
+    create_user_response = client.post(
+        "/api/v1/admin/users",
+        json=create_user_payload,
+        headers=action_headers(
+            management_device,
+            action_type="ADMIN_USER_CREATE",
+            target_type="user",
+            target_id="new",
+            payload=create_user_payload,
+        ),
+    )
+    assert create_user_response.status_code == 200
+    assert create_user_response.json()["username"] == "created_user"
+    assert create_user_response.json()["role"] == "user"
+
+    create_admin_payload = {
+        "username": "created_admin",
+        "password": TEST_PASSWORD,
+        "display_name": "created_admin_display",
+        "role": "admin",
+    }
+    create_admin_response = client.post(
+        "/api/v1/admin/users",
+        json=create_admin_payload,
+        headers=action_headers(
+            management_device,
+            action_type="ADMIN_USER_CREATE",
+            target_type="user",
+            target_id="new",
+            payload=create_admin_payload,
+        ),
+    )
+    assert create_admin_response.status_code == 200
+    assert create_admin_response.json()["role"] == "admin"
+
     update_response = client.patch(
         f"/api/v1/admin/users/{user_id}",
         json={"role": "admin", "is_active": True},
@@ -481,7 +522,9 @@ def test_admin_policy_live_crawler_review_flow(monkeypatch, tmp_path) -> None:
 
     candidates_response = client.get("/api/v1/admin/policy-crawler/candidates")
     assert candidates_response.status_code == 200
-    candidate = candidates_response.json()[0]
+    candidates_page = candidates_response.json()
+    assert candidates_page["total"] >= 1
+    candidate = candidates_page["items"][0]
     assert candidate["status"] == "pending_review"
     assert candidate["metadata"]["candidate_summary"]
     assert candidate["metadata"]["candidate_content_length"] > 0
@@ -536,11 +579,34 @@ def test_admin_policy_live_crawler_review_flow(monkeypatch, tmp_path) -> None:
     assert rag_candidate["rag_indexed_chunk_count"] == 2
     assert rag_candidate["rag_search_smoke_passed"] is True
 
+    batch_payload = {
+        "candidate_ids": [candidate["candidate_id"]],
+        "target_kb_policy": "auto_crawler_default",
+        "skip_duplicates": True,
+    }
+    batch_response = client.post(
+        "/api/v1/admin/policy-crawler/candidates/batch-publish-to-rag",
+        json=batch_payload,
+        headers=action_headers(
+            management_device,
+            action_type="POLICY_CRAWLER_CANDIDATE_BATCH_PUBLISH_TO_RAG",
+            target_type="policy_crawler_candidate",
+            target_id="batch",
+            payload=batch_payload,
+        ),
+    )
+    assert batch_response.status_code == 200
+    assert batch_response.json()["total"] == 1
+    assert batch_response.json()["published"] == 1
+    assert batch_response.json()["items"][0]["rag_doc_id"] == "rag-doc-policy"
+
     runs_response = client.get("/api/v1/admin/policy-crawler/runs")
     assert runs_response.status_code == 200
-    assert runs_response.json()[0]["candidate_count"] == 1
-    assert runs_response.json()[0]["metadata"]["auto_published_count"] == 0
-    assert runs_response.json()[0]["metadata"]["auto_indexed_count"] == 0
+    runs_page = runs_response.json()
+    assert runs_page["total"] >= 1
+    assert runs_page["items"][0]["candidate_count"] == 1
+    assert runs_page["items"][0]["metadata"]["auto_published_count"] == 0
+    assert runs_page["items"][0]["metadata"]["auto_indexed_count"] == 0
 
 
 def test_admin_policy_live_crawler_reject_flow(monkeypatch, tmp_path) -> None:
@@ -580,7 +646,7 @@ def test_admin_policy_live_crawler_reject_flow(monkeypatch, tmp_path) -> None:
         ),
     )
     assert run_response.status_code == 200
-    candidate = client.get("/api/v1/admin/policy-crawler/candidates").json()[0]
+    candidate = client.get("/api/v1/admin/policy-crawler/candidates").json()["items"][0]
 
     reject_response = client.post(
         f"/api/v1/admin/policy-crawler/candidates/{candidate['candidate_id']}/reject",

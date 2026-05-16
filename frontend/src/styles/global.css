@@ -2948,6 +2948,21 @@ body {
     background: var(--cr-surface-strong);
 }
 
+.admin-crawler-drawer-json {
+    max-height: 360px;
+    margin: 0;
+    padding: 14px 16px;
+    overflow: auto;
+    border: 1px solid var(--cr-border);
+    border-radius: 14px;
+    background: var(--cr-surface-muted);
+    color: var(--cr-text-primary);
+    font-size: 12px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
 .kb-console {
     display: flex;
     width: 100%;

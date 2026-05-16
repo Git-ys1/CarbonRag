@@ -673,6 +673,43 @@ class PolicyCrawlerStore:
         )
         return [self._row_to_run(row) for row in rows]
 
+    def list_runs_page(
+        self,
+        *,
+        source_id: str | None = None,
+        status: PolicyCrawlRunStatus | None = None,
+        page: int = 1,
+        page_size: int = 20,
+        sort_by: str = "started_at",
+        sort_order: str = "desc",
+    ) -> tuple[list[PolicyCrawlerRun], int]:
+        clauses: list[str] = []
+        params: list[object] = []
+        if source_id:
+            clauses.append(f"source_id = {self._placeholder()}")
+            params.append(source_id)
+        if status:
+            clauses.append(f"status = {self._placeholder()}")
+            params.append(status)
+        where_sql = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        total_rows = self._select(f"SELECT COUNT(*) AS count FROM policy_crawl_runs{where_sql}", params)
+        total = int(total_rows[0]["count"] or 0) if total_rows else 0
+        sort_column = sort_by if sort_by in {"started_at", "finished_at", "status", "source_id", "candidate_count", "document_count"} else "started_at"
+        order = "ASC" if sort_order.lower() == "asc" else "DESC"
+        safe_page_size = max(1, min(page_size, 100))
+        safe_page = max(1, page)
+        offset = (safe_page - 1) * safe_page_size
+        query_params = [*params, safe_page_size, offset]
+        rows = self._select(
+            f"""
+            SELECT * FROM policy_crawl_runs{where_sql}
+            ORDER BY {sort_column} {order}, run_seq DESC
+            LIMIT {self._placeholder()} OFFSET {self._placeholder()}
+            """,
+            query_params,
+        )
+        return [self._row_to_run(row) for row in rows], total
+
     def upsert_candidate(
         self,
         *,
@@ -805,6 +842,7 @@ class PolicyCrawlerStore:
         *,
         status: PolicyCrawlCandidateStatus | None = None,
         source_id: str | None = None,
+        run_id: str | None = None,
         limit: int = 50,
     ) -> list[PolicyCrawlerCandidate]:
         clauses: list[str] = []
@@ -815,6 +853,9 @@ class PolicyCrawlerStore:
         if source_id:
             clauses.append(f"source_id = {self._placeholder()}")
             params.append(source_id)
+        if run_id:
+            clauses.append(f"run_id = {self._placeholder()}")
+            params.append(run_id)
         where_sql = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         params.append(max(1, min(limit, 200)))
         rows = self._select(
@@ -822,6 +863,110 @@ class PolicyCrawlerStore:
             params,
         )
         return [self._row_to_candidate(row) for row in rows]
+
+    def list_candidates_page(
+        self,
+        *,
+        status: PolicyCrawlCandidateStatus | None = None,
+        source_id: str | None = None,
+        run_id: str | None = None,
+        rag_pipeline_status: str | None = None,
+        topic_class: str | None = None,
+        query: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+        sort_by: str = "updated_at",
+        sort_order: str = "desc",
+    ) -> tuple[list[PolicyCrawlerCandidate], int]:
+        clauses: list[str] = []
+        params: list[object] = []
+        if status:
+            clauses.append(f"status = {self._placeholder()}")
+            params.append(status)
+        if source_id:
+            clauses.append(f"source_id = {self._placeholder()}")
+            params.append(source_id)
+        if run_id:
+            clauses.append(f"run_id = {self._placeholder()}")
+            params.append(run_id)
+        where_sql = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self._select(f"SELECT * FROM policy_crawl_candidates{where_sql}", params)
+        candidates = [self._row_to_candidate(row) for row in rows]
+        normalized_query = (query or "").strip().lower()
+        if rag_pipeline_status:
+            candidates = [
+                candidate
+                for candidate in candidates
+                if str(candidate.metadata.get("rag_pipeline_status") or "").lower() == rag_pipeline_status.lower()
+            ]
+        if topic_class:
+            candidates = [
+                candidate
+                for candidate in candidates
+                if str(candidate.metadata.get("topic_class") or "").lower() == topic_class.lower()
+            ]
+        if normalized_query:
+            candidates = [
+                candidate
+                for candidate in candidates
+                if normalized_query
+                in " ".join(
+                    [
+                        candidate.title or "",
+                        candidate.url,
+                        candidate.source_name or "",
+                        str(candidate.metadata.get("source_label") or ""),
+                    ]
+                ).lower()
+            ]
+        reverse = sort_order.lower() != "asc"
+
+        def sort_key(candidate: PolicyCrawlerCandidate) -> object:
+            if sort_by == "created_at":
+                return candidate.created_at
+            if sort_by == "candidate_quality_score":
+                return int(candidate.metadata.get("candidate_quality_score") or 0)
+            if sort_by == "extraction_quality_score":
+                return int(candidate.metadata.get("extraction_quality_score") or 0)
+            if sort_by == "topic_relevance_score":
+                return int(candidate.metadata.get("topic_relevance_score") or 0)
+            if sort_by == "source_id":
+                return candidate.source_id
+            if sort_by == "status":
+                return candidate.status
+            return candidate.updated_at
+
+        candidates.sort(key=sort_key, reverse=reverse)
+        total = len(candidates)
+        safe_page_size = max(1, min(page_size, 100))
+        safe_page = max(1, page)
+        start = (safe_page - 1) * safe_page_size
+        return candidates[start : start + safe_page_size], total
+
+    def update_run_metadata(
+        self,
+        *,
+        run_id: str,
+        metadata: dict[str, Any],
+        error_detail: str | None = None,
+    ) -> PolicyCrawlerRun:
+        run = self.get_run(run_id)
+        if run is None:
+            raise KeyError(run_id)
+        merged_metadata = {**run.metadata, **metadata}
+        params: list[object] = [json.dumps(merged_metadata, ensure_ascii=False), run_id]
+        error_sql = ""
+        if error_detail is not None:
+            error_sql = f", error_detail = {self._placeholder()}"
+            params = [json.dumps(merged_metadata, ensure_ascii=False), error_detail, run_id]
+        self._execute(
+            f"UPDATE policy_crawl_runs SET metadata_json = {self._placeholder()}{error_sql} WHERE run_id = {self._placeholder()}",
+            params,
+        )
+        updated = self.get_run(run_id)
+        if updated is None:
+            raise RuntimeError("policy crawl run metadata update failed")
+        return updated
 
     def update_candidate_review(
         self,
@@ -1188,9 +1333,10 @@ class PolicyCrawlerScheduler:
         *,
         status: PolicyCrawlCandidateStatus | None = None,
         source_id: str | None = None,
+        run_id: str | None = None,
         limit: int = 50,
     ) -> list[PolicyCrawlerCandidate]:
-        return self.store.list_candidates(status=status, source_id=source_id, limit=limit)
+        return self.store.list_candidates(status=status, source_id=source_id, run_id=run_id, limit=limit)
 
     def publish_candidate(self, *, candidate_id: str, reviewed_by_user_id: str | None) -> PolicyCrawlerCandidate:
         candidate = self.store.get_candidate(candidate_id)

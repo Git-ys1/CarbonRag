@@ -20,6 +20,7 @@ import {
     Input,
     List,
     Modal,
+    Select,
     Space,
     Spin,
     Statistic,
@@ -37,12 +38,16 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../app/AuthContext";
 import { useFeedback } from "../../hooks/useFeedback";
 import { FilePreviewDrawer } from "../../components/FilePreviewDrawer";
+import { CrawlerCandidateDrawer } from "./CrawlerCandidateDrawer";
 import {
+    batchPublishPolicyCrawlerCandidatesToRag,
+    createAdminUser,
     deleteAdminUsers,
     createPolicyCrawlerSource,
     dryRunPolicyCrawlerSource,
     getAdminFeedbackOverview,
     getAdminSystemStatus,
+    getPolicyCrawlerAutoRagKbStatus,
     getPolicyCrawlerStatus,
     getPolicyShowcaseRetrievalPreview,
     getPolicyShowcaseStatus,
@@ -73,6 +78,8 @@ import type {
     AdminFeedbackOverview,
     AdminSystemStatus,
     AdminUserSummary,
+    CreateAdminUserRequest,
+    PolicyCrawlerAutoRagKbStatus,
     PolicyCrawlerCandidateSummary,
     PolicyCrawlerDryRunSummary,
     PolicyCrawlerRunSummary,
@@ -248,6 +255,21 @@ export function AdminPlaceholderPage() {
     const [policyCrawlerSources, setPolicyCrawlerSources] = useState<PolicyCrawlerSourceSummary[]>([]);
     const [policyCrawlerRuns, setPolicyCrawlerRuns] = useState<PolicyCrawlerRunSummary[]>([]);
     const [policyCrawlerCandidates, setPolicyCrawlerCandidates] = useState<PolicyCrawlerCandidateSummary[]>([]);
+    const [policyCrawlerRunTotal, setPolicyCrawlerRunTotal] = useState(0);
+    const [policyCrawlerCandidateTotal, setPolicyCrawlerCandidateTotal] = useState(0);
+    const [policyCrawlerRunPage, setPolicyCrawlerRunPage] = useState(1);
+    const [policyCrawlerCandidatePage, setPolicyCrawlerCandidatePage] = useState(1);
+    const [policyCrawlerCandidateQuery, setPolicyCrawlerCandidateQuery] = useState("");
+    const [policyCrawlerCandidateStatusFilter, setPolicyCrawlerCandidateStatusFilter] = useState<string | undefined>();
+    const [policyCrawlerCandidateSourceFilter, setPolicyCrawlerCandidateSourceFilter] = useState<string | undefined>();
+    const [policyCrawlerCandidateRunFilter, setPolicyCrawlerCandidateRunFilter] = useState<string | undefined>();
+    const [policyCrawlerCandidateRagFilter, setPolicyCrawlerCandidateRagFilter] = useState<string | undefined>();
+    const [policyCrawlerCandidateTopicFilter, setPolicyCrawlerCandidateTopicFilter] = useState<string | undefined>();
+    const [selectedCrawlerCandidateIds, setSelectedCrawlerCandidateIds] = useState<string[]>([]);
+    const [selectedCrawlerCandidate, setSelectedCrawlerCandidate] = useState<PolicyCrawlerCandidateSummary | null>(null);
+    const [crawlerTabKey, setCrawlerTabKey] = useState("sources");
+    const [policyCrawlerAutoKbStatus, setPolicyCrawlerAutoKbStatus] = useState<PolicyCrawlerAutoRagKbStatus | null>(null);
+    const [batchPublishingCandidates, setBatchPublishingCandidates] = useState(false);
     const [userSavingId, setUserSavingId] = useState<string | null>(null);
     const [knowledgeItemSavingId, setKnowledgeItemSavingId] = useState<string | null>(null);
     const [refreshingKnowledge, setRefreshingKnowledge] = useState<KnowledgeTaskRefreshAction>(null);
@@ -258,11 +280,14 @@ export function AdminPlaceholderPage() {
     const [filePreviewTarget, setFilePreviewTarget] = useState<FilePreviewTarget | null>(null);
     const [selectedTask, setSelectedTask] = useState<KnowledgeTask | null>(null);
     const [selectedDeleteUserIds, setSelectedDeleteUserIds] = useState<string[]>([]);
+    const [createUserModalOpen, setCreateUserModalOpen] = useState(false);
+    const [creatingUser, setCreatingUser] = useState(false);
     const [deleteUsersModalOpen, setDeleteUsersModalOpen] = useState(false);
     const [deleteUsersPassword, setDeleteUsersPassword] = useState("");
     const [deletingUsers, setDeletingUsers] = useState(false);
     const [userSearchQuery, setUserSearchQuery] = useState("");
     const [userTablePage, setUserTablePage] = useState(1);
+    const [createUserForm] = Form.useForm<CreateAdminUserRequest>();
     const [sourceModalOpen, setSourceModalOpen] = useState(false);
     const [sourceForm] = Form.useForm<PolicyCrawlerSourceUpsertRequest>();
     const [savingCrawlerSource, setSavingCrawlerSource] = useState(false);
@@ -281,6 +306,16 @@ export function AdminPlaceholderPage() {
             key: `admin-console:${errorMessage}`,
         });
     }, [errorMessage, feedback]);
+
+    useEffect(() => {
+        const handleRelayReady = () => {
+            if (managementRelayRequired) {
+                void loadAdminWorkspace();
+            }
+        };
+        window.addEventListener("carbonrag-management-relay-ready", handleRelayReady);
+        return () => window.removeEventListener("carbonrag-management-relay-ready", handleRelayReady);
+    }, [managementRelayRequired]);
 
     const filteredUsers = useMemo(() => {
         const query = userSearchQuery.trim().toLowerCase();
@@ -341,10 +376,14 @@ export function AdminPlaceholderPage() {
                         <Typography.Text>{roleLabelMap[record.role] ?? record.role}</Typography.Text>
                         <Button
                             size="small"
-                            disabled={userSavingId === record.user_id || record.role === "super_admin"}
+                            disabled={
+                                userSavingId === record.user_id ||
+                                record.role === "super_admin" ||
+                                currentUser?.role !== "super_admin"
+                            }
                             onClick={() => void handleUpdateUser(record, record.role === "admin" ? "user" : "admin", record.is_active)}
                         >
-                            切换角色
+                            {currentUser?.role === "super_admin" ? "切换角色" : "仅 super admin 可改"}
                         </Button>
                     </Space>
                 ),
@@ -357,7 +396,7 @@ export function AdminPlaceholderPage() {
                         size="small"
                         checked={record.is_active}
                         loading={userSavingId === record.user_id}
-                        disabled={record.role === "super_admin"}
+                        disabled={record.role === "super_admin" || (record.role === "admin" && currentUser?.role !== "super_admin")}
                         onChange={(checked) => {
                             if (record.role === "super_admin") {
                                 return;
@@ -395,7 +434,7 @@ export function AdminPlaceholderPage() {
                 ),
             },
         ],
-        [userSavingId],
+        [currentUser?.role, userSavingId],
     );
 
     const knowledgeColumns = useMemo<ColumnsType<KnowledgeItem>>(
@@ -608,6 +647,19 @@ export function AdminPlaceholderPage() {
         void loadAdminWorkspace();
     }, []);
 
+    useEffect(() => {
+        void fetchPolicyCrawlerWorkspace();
+    }, [
+        policyCrawlerRunPage,
+        policyCrawlerCandidatePage,
+        policyCrawlerCandidateStatusFilter,
+        policyCrawlerCandidateSourceFilter,
+        policyCrawlerCandidateRunFilter,
+        policyCrawlerCandidateRagFilter,
+        policyCrawlerCandidateTopicFilter,
+        policyCrawlerCandidateQuery,
+    ]);
+
     async function fetchPolicyShowcase(sourceId: string): Promise<PolicyShowcaseStatus> {
         const status = await getPolicyShowcaseStatus(sourceId);
         const [chunks, retrievalPreview] = await Promise.all([
@@ -622,16 +674,29 @@ export function AdminPlaceholderPage() {
     }
 
     async function fetchPolicyCrawlerWorkspace() {
-        const [status, sources, runs, candidates] = await Promise.all([
+        const [status, sources, runsPage, candidatesPage, autoKbStatus] = await Promise.all([
             getPolicyCrawlerStatus(),
             listPolicyCrawlerSources(),
-            listPolicyCrawlerRuns(undefined, 10),
-            listPolicyCrawlerCandidates(undefined, undefined, 20),
+            listPolicyCrawlerRuns({ page: policyCrawlerRunPage, pageSize: 20 }),
+            listPolicyCrawlerCandidates({
+                status: policyCrawlerCandidateStatusFilter as PolicyCrawlerCandidateSummary["status"] | undefined,
+                sourceId: policyCrawlerCandidateSourceFilter,
+                runId: policyCrawlerCandidateRunFilter,
+                ragPipelineStatus: policyCrawlerCandidateRagFilter,
+                topicClass: policyCrawlerCandidateTopicFilter,
+                query: policyCrawlerCandidateQuery,
+                page: policyCrawlerCandidatePage,
+                pageSize: 20,
+            }),
+            getPolicyCrawlerAutoRagKbStatus(),
         ]);
         setPolicyCrawlerStatus(status);
         setPolicyCrawlerSources(sources);
-        setPolicyCrawlerRuns(runs);
-        setPolicyCrawlerCandidates(candidates);
+        setPolicyCrawlerRuns(runsPage.items);
+        setPolicyCrawlerRunTotal(runsPage.total);
+        setPolicyCrawlerCandidates(candidatesPage.items);
+        setPolicyCrawlerCandidateTotal(candidatesPage.total);
+        setPolicyCrawlerAutoKbStatus(autoKbStatus);
     }
 
     async function loadAdminWorkspace() {
@@ -648,8 +713,9 @@ export function AdminPlaceholderPage() {
                 nextPolicySources,
                 nextCrawlerStatus,
                 nextCrawlerSources,
-                nextCrawlerRuns,
-                nextCrawlerCandidates,
+                nextCrawlerRunsPage,
+                nextCrawlerCandidatesPage,
+                nextCrawlerAutoKbStatus,
             ] = await Promise.all([
                 listAdminUsers(),
                 getAdminFeedbackOverview(),
@@ -659,8 +725,9 @@ export function AdminPlaceholderPage() {
                 listPolicyShowcaseSources(),
                 getPolicyCrawlerStatus(),
                 listPolicyCrawlerSources(),
-                listPolicyCrawlerRuns(undefined, 10),
-                listPolicyCrawlerCandidates(undefined, undefined, 20),
+                listPolicyCrawlerRuns({ page: 1, pageSize: 20 }),
+                listPolicyCrawlerCandidates({ page: 1, pageSize: 20 }),
+                getPolicyCrawlerAutoRagKbStatus(),
             ]);
             setUsers(nextUsers);
             setFeedbackOverview(nextFeedback);
@@ -670,8 +737,11 @@ export function AdminPlaceholderPage() {
             setPolicySources(nextPolicySources);
             setPolicyCrawlerStatus(nextCrawlerStatus);
             setPolicyCrawlerSources(nextCrawlerSources);
-            setPolicyCrawlerRuns(nextCrawlerRuns);
-            setPolicyCrawlerCandidates(nextCrawlerCandidates);
+            setPolicyCrawlerRuns(nextCrawlerRunsPage.items);
+            setPolicyCrawlerRunTotal(nextCrawlerRunsPage.total);
+            setPolicyCrawlerCandidates(nextCrawlerCandidatesPage.items);
+            setPolicyCrawlerCandidateTotal(nextCrawlerCandidatesPage.total);
+            setPolicyCrawlerAutoKbStatus(nextCrawlerAutoKbStatus);
             if (nextPolicySources[0]) {
                 setPolicyShowcaseStatus(await fetchPolicyShowcase(nextPolicySources[0].source_id));
             } else {
@@ -701,6 +771,30 @@ export function AdminPlaceholderPage() {
             setErrorMessage(extractDetailMessage(error) ?? "更新用户失败。");
         } finally {
             setUserSavingId(null);
+        }
+    }
+
+    async function handleCreateUser(values: CreateAdminUserRequest) {
+        if (values.role === "admin" && currentUser?.role !== "super_admin") {
+            message.warning("admin 账号只能由 super admin 创建。");
+            return;
+        }
+        setCreatingUser(true);
+        setErrorMessage(null);
+        try {
+            const created = await createAdminUser({
+                ...values,
+                display_name: values.display_name?.trim() || null,
+                role: values.role ?? "user",
+            });
+            message.success(`已创建账号「${created.username}」。`);
+            setCreateUserModalOpen(false);
+            createUserForm.resetFields();
+            await refreshUsers();
+        } catch (error) {
+            setErrorMessage(extractDetailMessage(error) ?? "创建账号失败。");
+        } finally {
+            setCreatingUser(false);
         }
     }
 
@@ -892,16 +986,26 @@ export function AdminPlaceholderPage() {
         }
     }
 
-    async function handleRunPolicyCrawler(sourceId: string) {
+    async function handleRunPolicyCrawler(sourceId: string, autoRagIngest = false) {
         setRunningCrawlerSourceId(sourceId);
         setErrorMessage(null);
         try {
-            const run = await runPolicyCrawlerSource(sourceId);
+            const run = await runPolicyCrawlerSource(sourceId, {
+                auto_rag_ingest_enabled: autoRagIngest,
+                auto_rag_ingest_min_quality: 60,
+                auto_rag_ingest_min_extraction: 60,
+                auto_rag_ingest_min_markdown_size: 800,
+                auto_rag_ingest_skip_duplicate: true,
+            });
             if (run.status === "succeeded") {
                 if (run.candidate_count > 0) {
-                    const indexedCount =
-                        typeof run.metadata.auto_indexed_count === "number" ? run.metadata.auto_indexed_count : run.candidate_count;
-                    message.success(`真实 Scrapy 抓取完成，新增/刷新 ${run.candidate_count} 条政策记录，已索引 ${indexedCount} 条。`);
+                    if (autoRagIngest) {
+                        message.success(
+                            `抓取并自动入库完成：候选 ${run.candidate_count} 条，自动入库 ${run.auto_rag_indexed_count ?? 0} 条，跳过 ${run.auto_rag_skipped_count ?? 0} 条。`,
+                        );
+                    } else {
+                        message.success(`真实 Scrapy 抓取完成，新增/刷新 ${run.candidate_count} 条政策候选。`);
+                    }
                 } else {
                     message.warning("真实 Scrapy 已运行，但本次没有匹配到双碳政策或技术标准。请查看运行记录和主题过滤数量。");
                 }
@@ -976,6 +1080,192 @@ export function AdminPlaceholderPage() {
         setSystemStatus(nextStatus);
     }
 
+    const policyCrawlerCandidateColumns: ColumnsType<PolicyCrawlerCandidateSummary> = [
+        {
+            title: "标题",
+            dataIndex: "title",
+            width: 260,
+            ellipsis: true,
+            render: (_value, candidate) => (
+                <Space direction="vertical" size={2}>
+                    <Typography.Text strong ellipsis>
+                        {candidateDisplayTitle(candidate)}
+                    </Typography.Text>
+                    <Typography.Text type="secondary" ellipsis>
+                        {candidate.url}
+                    </Typography.Text>
+                </Space>
+            ),
+        },
+        {
+            title: "来源",
+            dataIndex: "source_id",
+            width: 160,
+            ellipsis: true,
+            render: (value) => <Tag>{value}</Tag>,
+        },
+        {
+            title: "状态",
+            dataIndex: "status",
+            width: 110,
+            render: (value) => <Tag color={candidateStatusColorMap[value] ?? "default"}>{candidateStatusLabelMap[value] ?? value}</Tag>,
+        },
+        {
+            title: "质量",
+            dataIndex: "candidate_quality_score",
+            width: 90,
+            render: (value) => <Tag color={Number(value ?? 0) >= 60 ? "green" : "orange"}>{value ?? "-"}</Tag>,
+        },
+        {
+            title: "抽取",
+            dataIndex: "extraction_quality_score",
+            width: 90,
+            render: (value) => <Tag color={Number(value ?? 0) >= 60 ? "green" : "red"}>{value ?? "-"}</Tag>,
+        },
+        {
+            title: "主题",
+            dataIndex: "topic_class",
+            width: 140,
+            ellipsis: true,
+            render: (value) => (value ? <Tag>{formatTopicClass(String(value))}</Tag> : "-"),
+        },
+        {
+            title: "RAG 状态",
+            dataIndex: "rag_pipeline_status",
+            width: 130,
+            render: (value, candidate) =>
+                value ? (
+                    <Tag color={value === "indexed" ? "green" : "gold"}>
+                        {value} / {candidate.rag_indexed_chunk_count ?? 0}
+                    </Tag>
+                ) : (
+                    <Tag>未发布</Tag>
+                ),
+        },
+        {
+            title: "片段数",
+            dataIndex: "estimated_chunk_count",
+            width: 100,
+            render: (value, candidate) => `${candidate.rag_indexed_chunk_count ?? 0}/${value ?? candidate.metadata.estimated_chunk_count ?? 0}`,
+        },
+        {
+            title: "更新时间",
+            dataIndex: "updated_at",
+            width: 160,
+            render: (value) => formatTimestamp(value),
+        },
+        {
+            title: "操作",
+            key: "actions",
+            fixed: "right",
+            width: 240,
+            render: (_, candidate) => {
+                const artifactBlocked =
+                    Number(candidate.extraction_quality_score ?? 0) < 60 ||
+                    Number(candidate.markdown_size ?? candidate.metadata.markdown_size ?? 0) < 800 ||
+                    Number(candidate.cleaned_size ?? candidate.metadata.cleaned_size ?? 0) < 800 ||
+                    (candidate.artifact_errors?.length ?? 0) > 0;
+                const isDuplicate = candidate.skip_reason === "duplicate_content_hash" || candidate.metadata.change_type === "unchanged";
+                const publishLabel = isDuplicate && !candidate.rag_doc_id ? "重新入库" : "发布";
+                return (
+                    <Space size={6} wrap>
+                        <Button size="small" onClick={() => setSelectedCrawlerCandidate(candidate)}>
+                            详情
+                        </Button>
+                        <Button
+                            size="small"
+                            type="primary"
+                            loading={reviewingCandidateId === candidate.candidate_id}
+                            disabled={candidate.status === "rejected" || artifactBlocked}
+                            onClick={() => void handlePublishPolicyCandidateToRag(candidate.candidate_id)}
+                        >
+                            {publishLabel}
+                        </Button>
+                        <Button
+                            size="small"
+                            danger
+                            disabled={candidate.status !== "pending_review"}
+                            loading={reviewingCandidateId === candidate.candidate_id}
+                            onClick={() => void handleRejectPolicyCandidate(candidate.candidate_id)}
+                        >
+                            拒绝
+                        </Button>
+                    </Space>
+                );
+            },
+        },
+    ];
+
+    const policyCrawlerRunColumns: ColumnsType<PolicyCrawlerRunSummary> = [
+        {
+            title: "run_id",
+            dataIndex: "run_id",
+            width: 190,
+            ellipsis: true,
+            render: (value) => <Typography.Text code>{value}</Typography.Text>,
+        },
+        { title: "source", dataIndex: "source_id", width: 180, ellipsis: true },
+        { title: "trigger_type", dataIndex: "trigger_type", width: 120 },
+        {
+            title: "status",
+            dataIndex: "status",
+            width: 110,
+            render: (value) => <Tag color={crawlerRunStatusColorMap[value] ?? "default"}>{crawlerRunStatusLabelMap[value] ?? value}</Tag>,
+        },
+        { title: "抓取文档数", dataIndex: "document_count", width: 110 },
+        { title: "候选数", dataIndex: "candidate_count", width: 90 },
+        {
+            title: "自动入库数",
+            dataIndex: "auto_rag_indexed_count",
+            width: 120,
+            render: (value, run) => `${value ?? 0}/${run.auto_rag_attempted_count ?? 0}`,
+        },
+        {
+            title: "失败数",
+            dataIndex: "auto_rag_failed_count",
+            width: 90,
+            render: (value) => value ?? 0,
+        },
+        {
+            title: "耗时",
+            key: "duration",
+            width: 100,
+            render: (_, run) =>
+                run.finished_at
+                    ? `${Math.max(0, Math.round((new Date(run.finished_at).getTime() - new Date(run.started_at).getTime()) / 1000))}s`
+                    : "运行中",
+        },
+        {
+            title: "开始时间",
+            dataIndex: "started_at",
+            width: 170,
+            render: (value) => formatTimestamp(value),
+        },
+        {
+            title: "操作",
+            key: "actions",
+            fixed: "right",
+            width: 190,
+            render: (_, run) => (
+                <Space size={6} wrap>
+                    <Button
+                        size="small"
+                        onClick={() => {
+                            setPolicyCrawlerCandidateRunFilter(run.run_id);
+                            setPolicyCrawlerCandidatePage(1);
+                            setCrawlerTabKey("candidates");
+                        }}
+                    >
+                        查看本次候选
+                    </Button>
+                    <Button size="small" onClick={() => void handleRunPolicyCrawler(run.source_id)}>
+                        重跑
+                    </Button>
+                </Space>
+            ),
+        },
+    ];
+
     if (!loading && managementRelayRequired) {
         return (
             <Space className="admin-console" direction="vertical" size={18}>
@@ -985,7 +1275,7 @@ export function AdminPlaceholderPage() {
                             <Typography.Text className="admin-console__eyebrow">CarbonRag 管理后台</Typography.Text>
                             <Typography.Title level={2}>需要建立管理 Relay</Typography.Title>
                             <Typography.Paragraph>
-                                当前后端已经启用 Management Relay 校验。管理员后台不会再以空数据形式放行；请先完成设备校验并建立 Relay。
+                                当前后端已经启用 Management Relay 校验。登录后会自动尝试建立 AD/SA Relay；若仍未连接，请稍等后重新检查。
                             </Typography.Paragraph>
                         </div>
                         <Space className="admin-console__actions" size={10} wrap>
@@ -1008,6 +1298,29 @@ export function AdminPlaceholderPage() {
                 />
             </Space>
         );
+    }
+
+    async function handleBatchPublishPolicyCandidatesToRag(skipDuplicates = true) {
+        if (selectedCrawlerCandidateIds.length === 0) {
+            message.warning("请先选择候选文档。");
+            return;
+        }
+        setBatchPublishingCandidates(true);
+        setErrorMessage(null);
+        try {
+            const result = await batchPublishPolicyCrawlerCandidatesToRag({
+                candidate_ids: selectedCrawlerCandidateIds,
+                target_kb_policy: "auto_crawler_default",
+                skip_duplicates: skipDuplicates,
+            });
+            message.success(`批量入库完成：成功 ${result.published} 条，跳过 ${result.skipped} 条，失败 ${result.failed} 条。`);
+            setSelectedCrawlerCandidateIds([]);
+            await Promise.all([fetchPolicyCrawlerWorkspace(), loadKnowledgeWorkspace()]);
+        } catch (error) {
+            setErrorMessage(extractDetailMessage(error) ?? "批量发布到 RAG 知识库失败。");
+        } finally {
+            setBatchPublishingCandidates(false);
+        }
     }
 
     return (
@@ -1486,436 +1799,328 @@ export function AdminPlaceholderPage() {
                                 <Typography.Text type="secondary">暂无爬虫状态。</Typography.Text>
                             )}
 
-                            <div className="admin-crawler-source-grid">
-                                {policyCrawlerSourcesForDisplay.map((source) => {
-                                    const sourceRuns = policyCrawlerRuns.filter((run) => run.source_id === source.source_id);
-                                    const sourceCandidates = policyCrawlerCandidates.filter(
-                                        (candidate) => candidate.source_id === source.source_id,
-                                    );
-                                    const latestRun = sourceRuns[0];
-                                    const disabledReason = !source.is_enabled
-                                        ? "该源已停用"
-                                        : policyCrawlerStatus?.manual_enabled === false
-                                          ? "手动触发已关闭"
-                                          : policyCrawlerStatus?.running
-                                            ? "已有爬虫运行中"
-                                            : null;
-                                    return (
-                                        <Card
-                                            key={source.source_id}
-                                            size="small"
-                                            className="admin-crawler-source-card"
-                                            title={
-                                                <Space size={8} wrap>
-                                                    <Typography.Text strong>{source.title}</Typography.Text>
-                                                    <Tag color="blue">{source.allowed_domain}</Tag>
-                                                </Space>
-                                            }
-                                            extra={
-                                                <Tag color={source.is_enabled ? "green" : "default"}>
-                                                    {source.is_enabled ? "启用" : "停用"}
-                                                </Tag>
-                                            }
-                                        >
-                                            <Space direction="vertical" size={8} style={{ width: "100%" }}>
-                                                <Typography.Text type="secondary">{source.source_label}</Typography.Text>
-                                                <Typography.Link href={source.source_url} target="_blank" rel="noreferrer">
-                                                    {source.source_url}
-                                                </Typography.Link>
-                                                <Space size={8} wrap>
-                                                    <Tag color={crawlerRunStatusColorMap[source.last_run_status ?? latestRun?.status ?? ""] ?? "default"}>
-                                                        {source.last_run_status || latestRun?.status
-                                                            ? crawlerRunStatusLabelMap[source.last_run_status ?? latestRun?.status ?? ""] ??
-                                                              source.last_run_status ??
-                                                              latestRun?.status
-                                                            : "尚未抓取"}
-                                                    </Tag>
-                                                    <Tag>{sourceCandidates.length} 条候选</Tag>
-                                                    {latestRun ? <Tag>{latestRun.document_count} 个文档</Tag> : null}
-                                                    {latestRun?.metadata.fallback_reason ? (
-                                                        <Tag color="gold">{formatCrawlerFallbackLabel(latestRun.metadata.fallback_reason)}</Tag>
-                                                    ) : null}
-                                                    {source.source_category ? <Tag color="cyan">{source.source_category}</Tag> : null}
-                                                    {source.parser_profile ? <Tag>{source.parser_profile}</Tag> : null}
-                                                    {source.risk_level ? <Tag color={source.risk_level === "low" ? "green" : "gold"}>{source.risk_level}</Tag> : null}
-                                                </Space>
-                                                {source.last_error || latestRun?.error_detail ? (
-                                                    <Typography.Paragraph type="danger" ellipsis={{ rows: 2 }}>
-                                                        {source.last_error ?? latestRun?.error_detail}
-                                                    </Typography.Paragraph>
-                                                ) : (
-                                                    <Typography.Text type="secondary">
-                                                        点击后先运行 Local Scrapy；若超时或空结果会自动切到 urllib 快速发现。命中的政策文件进入候选审核区。
-                                                    </Typography.Text>
-                                                )}
-                                                <Space size={8} wrap>
-                                                    <Button
-                                                        icon={<EyeOutlined />}
-                                                        loading={dryRunSourceId === source.source_id}
-                                                        onClick={() => void handleDryRunPolicyCrawler(source.source_id)}
+                            <Tabs
+                                activeKey={crawlerTabKey}
+                                onChange={setCrawlerTabKey}
+                                items={[
+                                    {
+                                        key: "sources",
+                                        label: "源库",
+                                        children: (
+                                            <Space direction="vertical" size={12} style={{ width: "100%" }}>
+                                                <div className="admin-crawler-source-grid">
+                                                    {policyCrawlerSourcesForDisplay.map((source) => {
+                                                        const sourceRuns = policyCrawlerRuns.filter((run) => run.source_id === source.source_id);
+                                                        const latestRun = sourceRuns[0];
+                                                        const disabledReason = !source.is_enabled
+                                                            ? "该源已停用"
+                                                            : policyCrawlerStatus?.manual_enabled === false
+                                                              ? "手动触发已关闭"
+                                                              : policyCrawlerStatus?.running
+                                                                ? "已有爬虫运行中"
+                                                                : null;
+                                                        return (
+                                                            <Card
+                                                                key={source.source_id}
+                                                                size="small"
+                                                                className="admin-crawler-source-card"
+                                                                title={
+                                                                    <Space size={8} wrap>
+                                                                        <Typography.Text strong>{source.title}</Typography.Text>
+                                                                        <Tag color="blue">{source.allowed_domain}</Tag>
+                                                                    </Space>
+                                                                }
+                                                                extra={<Tag color={source.is_enabled ? "green" : "default"}>{source.is_enabled ? "启用" : "停用"}</Tag>}
+                                                            >
+                                                                <Space direction="vertical" size={8} style={{ width: "100%" }}>
+                                                                    <Typography.Text type="secondary">{source.source_label}</Typography.Text>
+                                                                    <Typography.Link href={source.source_url} target="_blank" rel="noreferrer" ellipsis>
+                                                                        {source.source_url}
+                                                                    </Typography.Link>
+                                                                    <Space size={8} wrap>
+                                                                        <Tag color={crawlerRunStatusColorMap[source.last_run_status ?? latestRun?.status ?? ""] ?? "default"}>
+                                                                            {source.last_run_status || latestRun?.status
+                                                                                ? crawlerRunStatusLabelMap[source.last_run_status ?? latestRun?.status ?? ""] ??
+                                                                                  source.last_run_status ??
+                                                                                  latestRun?.status
+                                                                                : "尚未抓取"}
+                                                                        </Tag>
+                                                                        {latestRun ? <Tag>{latestRun.candidate_count} 条候选</Tag> : null}
+                                                                        {latestRun ? <Tag>{latestRun.document_count} 个文档</Tag> : null}
+                                                                        {source.source_category ? <Tag color="cyan">{source.source_category}</Tag> : null}
+                                                                        {source.parser_profile ? <Tag>{source.parser_profile}</Tag> : null}
+                                                                    </Space>
+                                                                    <Typography.Text type={source.last_error || latestRun?.error_detail ? "danger" : "secondary"}>
+                                                                        {source.last_error ?? latestRun?.error_detail ?? "手动抓取只生成候选；抓取并自动入库会对合格候选执行 RAG quick pipeline。"}
+                                                                    </Typography.Text>
+                                                                    <Space size={8} wrap>
+                                                                        <Button
+                                                                            icon={<EyeOutlined />}
+                                                                            loading={dryRunSourceId === source.source_id}
+                                                                            onClick={() => void handleDryRunPolicyCrawler(source.source_id)}
+                                                                        >
+                                                                            试抓预览
+                                                                        </Button>
+                                                                        <Tooltip title={disabledReason ?? "只抓取候选，不自动写入 RAG。"}>
+                                                                            <Button
+                                                                                icon={<ReloadOutlined />}
+                                                                                disabled={Boolean(disabledReason)}
+                                                                                loading={runningCrawlerSourceId === source.source_id}
+                                                                                onClick={() => void handleRunPolicyCrawler(source.source_id)}
+                                                                            >
+                                                                                手动抓取
+                                                                            </Button>
+                                                                        </Tooltip>
+                                                                        <Tooltip title={disabledReason ?? "抓取后仅把通过质量门禁的候选写入自动爬虫知识库。"}>
+                                                                            <Button
+                                                                                type="primary"
+                                                                                icon={<CloudServerOutlined />}
+                                                                                disabled={Boolean(disabledReason)}
+                                                                                loading={runningCrawlerSourceId === source.source_id}
+                                                                                onClick={() => void handleRunPolicyCrawler(source.source_id, true)}
+                                                                            >
+                                                                                抓取并自动入库
+                                                                            </Button>
+                                                                        </Tooltip>
+                                                                    </Space>
+                                                                </Space>
+                                                            </Card>
+                                                        );
+                                                    })}
+                                                </div>
+                                                {dryRunResult ? (
+                                                    <Card
+                                                        size="small"
+                                                        title={`试抓预览：${dryRunResult.source_id}`}
+                                                        extra={
+                                                            <Space size={8} wrap>
+                                                                <Tag color={dryRunResult.status === "succeeded" ? "green" : "orange"}>
+                                                                    {crawlerRunStatusLabelMap[dryRunResult.status] ?? dryRunResult.status}
+                                                                </Tag>
+                                                                <Tag>候选 {dryRunResult.candidate_count}</Tag>
+                                                                <Tag>跳过 {dryRunResult.skipped_count}</Tag>
+                                                            </Space>
+                                                        }
                                                     >
-                                                        试抓预览
-                                                    </Button>
-                                                    <Tooltip title={disabledReason ?? "先运行 Local Scrapy；若 Scrapy 超时或空结果，自动转 urllib 快速发现。命中的政策文件会进入候选审核，不自动发布。"}>
-                                                        <Button
-                                                            type="primary"
-                                                            icon={<ReloadOutlined />}
-                                                            disabled={Boolean(disabledReason)}
-                                                            loading={runningCrawlerSourceId === source.source_id}
-                                                            onClick={() => void handleRunPolicyCrawler(source.source_id)}
-                                                        >
-                                                            手动抓取
-                                                        </Button>
-                                                    </Tooltip>
+                                                        <Table
+                                                            size="small"
+                                                            rowKey="url"
+                                                            dataSource={dryRunResult.candidates}
+                                                            pagination={{ pageSize: 5 }}
+                                                            tableLayout="fixed"
+                                                            scroll={{ y: 260, x: 980 }}
+                                                            columns={[
+                                                                { title: "标题", dataIndex: "title", width: 260, ellipsis: true, render: (value, item) => value || item.url },
+                                                                { title: "质量", dataIndex: "candidate_quality_score", width: 90, render: (value) => <Tag color={value >= 60 ? "green" : "orange"}>{value}</Tag> },
+                                                                { title: "片段", dataIndex: "estimated_chunk_count", width: 80 },
+                                                                { title: "跳过原因", dataIndex: "skip_reason", width: 140, ellipsis: true, render: (value) => value || "-" },
+                                                                { title: "Markdown 预览", dataIndex: "cleaned_markdown_preview", ellipsis: true },
+                                                            ]}
+                                                        />
+                                                        {dryRunResult.errors.length > 0 ? (
+                                                            <Alert showIcon type="warning" message="试抓错误" description={dryRunResult.errors.join("；")} />
+                                                        ) : null}
+                                                    </Card>
+                                                ) : null}
+                                            </Space>
+                                        ),
+                                    },
+                                    {
+                                        key: "candidates",
+                                        label: "候选",
+                                        children: (
+                                            <Space direction="vertical" size={12} style={{ width: "100%" }}>
+                                                <Space size={8} wrap>
+                                                    <Input.Search
+                                                        allowClear
+                                                        placeholder="搜索标题或 URL"
+                                                        style={{ width: 260 }}
+                                                        onSearch={(value) => {
+                                                            setPolicyCrawlerCandidateQuery(value);
+                                                            setPolicyCrawlerCandidatePage(1);
+                                                        }}
+                                                    />
+                                                    <Select
+                                                        allowClear
+                                                        placeholder="状态"
+                                                        style={{ width: 150 }}
+                                                        value={policyCrawlerCandidateStatusFilter}
+                                                        onChange={(value) => {
+                                                            setPolicyCrawlerCandidateStatusFilter(value);
+                                                            setPolicyCrawlerCandidatePage(1);
+                                                        }}
+                                                        options={[
+                                                            { value: "pending_review", label: "待审核" },
+                                                            { value: "published", label: "已发布" },
+                                                            { value: "rejected", label: "已拒绝" },
+                                                        ]}
+                                                    />
+                                                    <Select
+                                                        allowClear
+                                                        placeholder="来源"
+                                                        style={{ width: 220 }}
+                                                        value={policyCrawlerCandidateSourceFilter}
+                                                        onChange={(value) => {
+                                                            setPolicyCrawlerCandidateSourceFilter(value);
+                                                            setPolicyCrawlerCandidatePage(1);
+                                                        }}
+                                                        options={policyCrawlerSourcesForDisplay.map((source) => ({ value: source.source_id, label: source.title }))}
+                                                    />
+                                                    <Select
+                                                        allowClear
+                                                        placeholder="RAG 状态"
+                                                        style={{ width: 150 }}
+                                                        value={policyCrawlerCandidateRagFilter}
+                                                        onChange={(value) => {
+                                                            setPolicyCrawlerCandidateRagFilter(value);
+                                                            setPolicyCrawlerCandidatePage(1);
+                                                        }}
+                                                        options={[
+                                                            { value: "indexed", label: "已入库" },
+                                                            { value: "failed", label: "失败" },
+                                                            { value: "pending", label: "待处理" },
+                                                        ]}
+                                                    />
+                                                    <Select
+                                                        allowClear
+                                                        placeholder="主题"
+                                                        style={{ width: 190 }}
+                                                        value={policyCrawlerCandidateTopicFilter}
+                                                        onChange={(value) => {
+                                                            setPolicyCrawlerCandidateTopicFilter(value);
+                                                            setPolicyCrawlerCandidatePage(1);
+                                                        }}
+                                                        options={[
+                                                            { value: "core_dual_carbon_policy", label: "核心双碳" },
+                                                            { value: "indirect_low_carbon_related", label: "间接低碳相关" },
+                                                            { value: "low_relevance", label: "低相关" },
+                                                        ]}
+                                                    />
+                                                    {policyCrawlerCandidateRunFilter ? (
+                                                        <Tag closable onClose={() => setPolicyCrawlerCandidateRunFilter(undefined)}>
+                                                            run: {policyCrawlerCandidateRunFilter}
+                                                        </Tag>
+                                                    ) : null}
                                                     <Button icon={<SyncOutlined />} onClick={() => void fetchPolicyCrawlerWorkspace()}>
                                                         刷新
                                                     </Button>
                                                 </Space>
-                                            </Space>
-                                        </Card>
-                                    );
-                                })}
-                            </div>
-
-                            {dryRunResult ? (
-                                <Card
-                                    size="small"
-                                    title={`试抓预览：${dryRunResult.source_id}`}
-                                    extra={
-                                        <Space size={8} wrap>
-                                            <Tag color={dryRunResult.status === "succeeded" ? "green" : "orange"}>
-                                                {crawlerRunStatusLabelMap[dryRunResult.status] ?? dryRunResult.status}
-                                            </Tag>
-                                            <Tag>候选 {dryRunResult.candidate_count}</Tag>
-                                            <Tag>跳过 {dryRunResult.skipped_count}</Tag>
-                                        </Space>
-                                    }
-                                >
-                                    <List
-                                        size="small"
-                                        dataSource={dryRunResult.candidates.slice(0, 5)}
-                                        locale={{ emptyText: "本次试抓没有候选。" }}
-                                        renderItem={(item) => (
-                                            <List.Item>
-                                                <Space direction="vertical" size={4} style={{ width: "100%" }}>
-                                                    <Space size={8} wrap>
-                                                        <Typography.Text strong>{item.title || item.url}</Typography.Text>
-                                                        <Tag color={item.candidate_quality_score >= 60 ? "green" : "orange"}>
-                                                            质量 {item.candidate_quality_score}
-                                                        </Tag>
-                                                        {item.skip_reason ? <Tag color="gold">{item.skip_reason}</Tag> : null}
-                                                        <Tag>{item.estimated_chunk_count} 片段预估</Tag>
-                                                    </Space>
-                                                    <Typography.Link href={item.url} target="_blank" rel="noreferrer">
-                                                        {item.url}
-                                                    </Typography.Link>
-                                                    <Typography.Paragraph ellipsis={{ rows: 3 }}>
-                                                        {item.cleaned_markdown_preview}
-                                                    </Typography.Paragraph>
-                                                    <Space size={6} wrap>
-                                                        {item.matched_keywords.map((keyword) => (
-                                                            <Tag key={keyword} color="blue">
-                                                                {keyword}
-                                                            </Tag>
-                                                        ))}
-                                                    </Space>
-                                                </Space>
-                                            </List.Item>
-                                        )}
-                                    />
-                                    {dryRunResult.errors.length > 0 ? (
-                                        <Alert
-                                            showIcon
-                                            type="warning"
-                                            message="试抓错误"
-                                            description={dryRunResult.errors.join("；")}
-                                        />
-                                    ) : null}
-                                </Card>
-                            ) : null}
-
-                            <List
-                                className="admin-compact-list"
-                                size="small"
-                                header={<Typography.Text strong>候选与 RAG 发布记录</Typography.Text>}
-                                dataSource={policyCrawlerCandidates.slice(0, 8)}
-                                locale={{ emptyText: "暂无记录。抓取成功后会显示政策文件、来源、摘要、匹配关键词和 RAG 发布状态。" }}
-                                renderItem={(candidate) => {
-                                    const matchedKeywords =
-                                        candidate.matched_keywords?.length
-                                            ? candidate.matched_keywords
-                                            : metadataStringList(candidate.metadata.matched_policy_keywords);
-                                    const qualityScore = candidate.candidate_quality_score;
-                                    const extractionScore = candidate.extraction_quality_score;
-                                    const artifactBlocked =
-                                        (typeof extractionScore === "number" && extractionScore < 60) ||
-                                        Number(candidate.markdown_size ?? candidate.metadata.markdown_size ?? 0) < 800 ||
-                                        Number(candidate.cleaned_size ?? candidate.metadata.cleaned_size ?? 0) < 800 ||
-                                        (candidate.artifact_errors?.length ?? 0) > 0;
-                                    const isDuplicate = candidate.skip_reason === "duplicate_content_hash" || candidate.metadata.change_type === "unchanged";
-                                    const publishLabel = isDuplicate && !candidate.rag_doc_id ? "重新入库" : "发布到 RAG";
-                                    return (
-                                    <List.Item
-                                        actions={[
-                                            <Button
-                                                key="preview"
-                                                size="small"
-                                                icon={<EyeOutlined />}
-                                                onClick={() => setFilePreviewTarget({ sourceType: "crawler_candidate", sourceId: candidate.candidate_id })}
-                                            >
-                                                查看抓取文件
-                                            </Button>,
-                                            ...(candidate.url?.startsWith("http")
-                                                ? [
-                                                      <Button key="open-url" size="small" href={candidate.url} target="_blank" rel="noreferrer">
-                                                          打开原网页
-                                                      </Button>,
-                                                  ]
-                                                : []),
-                                            <Button
-                                                key="publish-rag"
-                                                type="primary"
-                                                size="small"
-                                                loading={reviewingCandidateId === candidate.candidate_id}
-                                                disabled={candidate.status === "rejected" || artifactBlocked}
-                                                onClick={() => void handlePublishPolicyCandidateToRag(candidate.candidate_id)}
-                                            >
-                                                {publishLabel}
-                                            </Button>,
-                                            <Button
-                                                key="publish-legacy"
-                                                size="small"
-                                                disabled={candidate.status !== "pending_review"}
-                                                loading={reviewingCandidateId === candidate.candidate_id}
-                                                onClick={() => void handlePublishPolicyCandidate(candidate.candidate_id)}
-                                            >
-                                                旧知识条目发布
-                                            </Button>,
-                                            <Button
-                                                key="reject"
-                                                danger
-                                                size="small"
-                                                disabled={candidate.status !== "pending_review"}
-                                                loading={reviewingCandidateId === candidate.candidate_id}
-                                                onClick={() => void handleRejectPolicyCandidate(candidate.candidate_id)}
-                                            >
-                                                拒绝
-                                            </Button>,
-                                        ]}
-                                    >
-                                        <Space direction="vertical" size={6} style={{ width: "100%" }}>
-                                            <Space size={8} wrap>
-                                                <Typography.Text strong>{candidateDisplayTitle(candidate)}</Typography.Text>
-                                                {candidate.title && isGenericPolicyCrawlerTitle(candidate.title) ? (
-                                                    <Tag color="orange">标题需复核</Tag>
-                                                ) : null}
-                                                <Tag color={candidateStatusColorMap[candidate.status]}>
-                                                    {candidateStatusLabelMap[candidate.status] ?? candidate.status}
-                                                </Tag>
-                                                <Tag>{candidate.content_type}</Tag>
-                                                {typeof qualityScore === "number" ? (
-                                                    <Tag color={qualityScore >= 60 ? "green" : "orange"}>质量 {qualityScore}</Tag>
-                                                ) : null}
-                                                {typeof extractionScore === "number" ? (
-                                                    <Tag color={extractionScore >= 60 ? "green" : "red"}>抽取 {extractionScore}</Tag>
-                                                ) : null}
-                                                {typeof candidate.topic_relevance_score === "number" ? (
-                                                    <Tag color={candidate.topic_relevance_score >= 70 ? "green" : "blue"}>
-                                                        主题 {candidate.topic_relevance_score}
-                                                    </Tag>
-                                                ) : null}
-                                                {candidate.topic_class ? <Tag>{formatTopicClass(candidate.topic_class)}</Tag> : null}
-                                                {isDuplicate ? <Tag color="gold">重复内容</Tag> : candidate.skip_reason ? <Tag color="gold">{candidate.skip_reason}</Tag> : null}
-                                                {candidateQualityTags(candidate).map((tag) => (
-                                                    <Tag key={`${candidate.candidate_id}-${tag.label}`} color={tag.color}>
-                                                        {tag.label}
-                                                    </Tag>
-                                                ))}
-                                                {candidate.rag_pipeline_status ? (
-                                                    <Tag color={candidate.rag_pipeline_status === "indexed" ? "green" : "gold"}>
-                                                        RAG {candidate.rag_pipeline_status}
-                                                    </Tag>
-                                                ) : null}
-                                            </Space>
-                                            <Typography.Link href={candidate.url} target="_blank" rel="noreferrer" ellipsis>
-                                                {candidate.url}
-                                            </Typography.Link>
-                                            <Typography.Paragraph type="secondary" ellipsis={{ rows: 2 }}>
-                                                {formatCandidateSummary(candidate)}
-                                            </Typography.Paragraph>
-                                            <Descriptions size="small" column={{ xs: 1, sm: 2, md: 3 }}>
-                                                <Descriptions.Item label="来源入口">
-                                                    {formatMetadataText(candidate.metadata.seed_url) || candidate.source_id}
-                                                </Descriptions.Item>
-                                                <Descriptions.Item label="抓取深度">
-                                                    {formatMetadataText(candidate.metadata.candidate_depth) || "0"}
-                                                </Descriptions.Item>
-                                                <Descriptions.Item label="内容大小">
-                                                    {formatBytes(candidate.metadata.candidate_content_length)}
-                                                </Descriptions.Item>
-                                                <Descriptions.Item label="抽取产物">
-                                                    Markdown {formatBytes(candidate.markdown_size ?? candidate.metadata.markdown_size)} / 纯文本{" "}
-                                                    {formatBytes(candidate.cleaned_size ?? candidate.metadata.cleaned_size)} / 预计{" "}
-                                                    {formatMetadataText(
-                                                        candidate.estimated_chunk_count ?? candidate.metadata.estimated_chunk_count,
-                                                    ) || "0"}{" "}
-                                                    片段
-                                                </Descriptions.Item>
-                                                <Descriptions.Item label="发现地址" span={2}>
-                                                    <Typography.Text ellipsis>
-                                                        {formatMetadataText(candidate.metadata.candidate_response_url) || candidate.url}
+                                                <Space size={8} wrap>
+                                                    <Button
+                                                        type="primary"
+                                                        disabled={selectedCrawlerCandidateIds.length === 0}
+                                                        loading={batchPublishingCandidates}
+                                                        onClick={() => void handleBatchPublishPolicyCandidatesToRag(true)}
+                                                    >
+                                                        批量发布到 RAG
+                                                    </Button>
+                                                    <Button
+                                                        disabled={selectedCrawlerCandidateIds.length === 0}
+                                                        loading={batchPublishingCandidates}
+                                                        onClick={() => void handleBatchPublishPolicyCandidatesToRag(false)}
+                                                    >
+                                                        批量重新入库
+                                                    </Button>
+                                                    <Typography.Text type="secondary">
+                                                        已选 {selectedCrawlerCandidateIds.length} / 共 {policyCrawlerCandidateTotal} 条
                                                     </Typography.Text>
-                                                </Descriptions.Item>
-                                                <Descriptions.Item label="匹配关键词">
-                                                    {matchedKeywords.length > 0 ? (
-                                                        <Space size={4} wrap>
-                                                            {matchedKeywords.map((keyword) => (
-                                                                <Tag key={`${candidate.candidate_id}-${keyword}`} color="green">
-                                                                    {keyword}
-                                                                </Tag>
-                                                            ))}
-                                                        </Space>
-                                                    ) : (
-                                                        <Typography.Text type="warning">未匹配双碳/技术标准关键词</Typography.Text>
-                                                    )}
-                                                </Descriptions.Item>
-                                                <Descriptions.Item label="入库结果">
-                                                    {candidate.review_note || (candidate.knowledge_item_id ? "已创建知识条目" : "等待自动处理")}
-                                                </Descriptions.Item>
-                                                <Descriptions.Item label="RAG KB">
-                                                    {candidate.rag_kb_id ? (
-                                                        <Typography.Text code>{candidate.rag_kb_id}</Typography.Text>
-                                                    ) : (
-                                                        "未发布"
-                                                    )}
-                                                </Descriptions.Item>
-                                                <Descriptions.Item label="RAG 文档">
-                                                    {candidate.rag_doc_id ? (
-                                                        <Typography.Text code>{candidate.rag_doc_id}</Typography.Text>
-                                                    ) : (
-                                                        "未创建"
-                                                    )}
-                                                </Descriptions.Item>
-                                                <Descriptions.Item label="RAG 索引">
-                                                    {candidate.rag_pipeline_status
-                                                        ? `${candidate.rag_pipeline_status} / ${candidate.rag_indexed_chunk_count ?? 0} chunks / smoke ${
-                                                              candidate.rag_search_smoke_passed ? "通过" : "未通过"
-                                                          }`
-                                                        : "待发布到 RAG"}
-                                                </Descriptions.Item>
-                                                {candidate.rag_error_stage ? (
-                                                    <Descriptions.Item label="RAG 失败阶段" span={3}>
-                                                        <Typography.Text type="danger">
-                                                            {candidate.rag_error_stage}: {formatMetadataText(candidate.metadata.rag_error_detail) || "未记录"}
-                                                        </Typography.Text>
-                                                    </Descriptions.Item>
-                                                ) : null}
-                                                {candidate.artifact_errors?.length ? (
-                                                    <Descriptions.Item label="抽取问题" span={3}>
-                                                        <Typography.Text type="danger">{candidate.artifact_errors.join("；")}</Typography.Text>
-                                                    </Descriptions.Item>
-                                                ) : null}
-                                            </Descriptions>
-                                            <Typography.Text type="secondary">
-                                                hash {candidate.content_hash.slice(0, 12)} / {formatTimestamp(candidate.updated_at)}
-                                            </Typography.Text>
-                                        </Space>
-                                    </List.Item>
-                                    );
-                                }}
-                            />
-
-                            <List
-                                className="admin-compact-list"
-                                size="small"
-                                header={<Typography.Text strong>最近运行记录</Typography.Text>}
-                                dataSource={policyCrawlerRuns.slice(0, 5)}
-                                locale={{ emptyText: "暂无运行记录。" }}
-                                renderItem={(run) => {
-                                    const runCandidates = policyCrawlerCandidates.filter((candidate) => candidate.run_id === run.run_id);
-                                    const indexedCount =
-                                        typeof run.metadata.auto_indexed_count === "number" ? run.metadata.auto_indexed_count : 0;
-                                    const failedIndexCount =
-                                        typeof run.metadata.auto_index_failed_count === "number" ? run.metadata.auto_index_failed_count : 0;
-                                    const skippedTopicCount =
-                                        typeof run.metadata.skipped_topic_count === "number" ? run.metadata.skipped_topic_count : 0;
-                                    return (
-                                    <List.Item>
-                                        <Space direction="vertical" size={8} style={{ width: "100%" }}>
-                                            <Space size={8} wrap>
-                                                <Typography.Text code>{run.run_id}</Typography.Text>
-                                                <Tag color={crawlerRunStatusColorMap[run.status] ?? "default"}>
-                                                    {crawlerRunStatusLabelMap[run.status] ?? run.status}
-                                                </Tag>
-                                                 <Tag>{run.trigger_type}</Tag>
-                                                {typeof run.metadata.external_job_id === "string" ? (
-                                                    <Tag>{run.metadata.external_job_id}</Tag>
-                                                ) : null}
-                                                <Tag>{run.document_count} 抓取文档</Tag>
-                                                <Tag>{run.candidate_count} 入库记录</Tag>
-                                                <Tag color={indexedCount > 0 ? "green" : "default"}>{indexedCount} 已索引</Tag>
-                                                {failedIndexCount > 0 ? <Tag color="red">{failedIndexCount} 索引失败</Tag> : null}
-                                                <Tag color={skippedTopicCount > 0 ? "gold" : "default"}>{skippedTopicCount} 主题过滤</Tag>
-                                                {run.metadata.fallback_reason ? (
-                                                    <Tag color="gold">{formatCrawlerFallbackLabel(run.metadata.fallback_reason)}</Tag>
-                                                ) : null}
-                                            </Space>
-                                            <Typography.Text type={run.error_detail ? "danger" : "secondary"}>
-                                                {run.error_detail ?? `${formatTimestamp(run.started_at)} / ${run.provider_name ?? "unknown"}`}
-                                            </Typography.Text>
-                                            {run.metadata.scrapy_error ? (
-                                                <Typography.Text type="secondary">
-                                                    {formatMetadataText(run.metadata.scrapy_error)}
-                                                </Typography.Text>
-                                            ) : null}
-                                            <Descriptions size="small" column={{ xs: 1, sm: 2, md: 4 }}>
-                                                <Descriptions.Item label="自动发布">
-                                                    {formatMetadataValue(run.metadata.auto_published_count)}
-                                                </Descriptions.Item>
-                                                <Descriptions.Item label="索引成功率">
-                                                    {run.candidate_count > 0
-                                                        ? `${indexedCount}/${run.candidate_count}`
-                                                        : "暂无入库记录"}
-                                                </Descriptions.Item>
-                                                <Descriptions.Item label="主题过滤">
-                                                    {formatMetadataValue(run.metadata.skipped_topic_count)}
-                                                </Descriptions.Item>
-                                                <Descriptions.Item label="运行耗时">
-                                                    {run.finished_at
-                                                        ? `${Math.max(0, Math.round((new Date(run.finished_at).getTime() - new Date(run.started_at).getTime()) / 1000))}s`
-                                                        : "运行中"}
-                                                </Descriptions.Item>
-                                            </Descriptions>
-                                            {runCandidates.length > 0 ? (
-                                                <Space direction="vertical" size={4} style={{ width: "100%" }}>
-                                                    <Typography.Text type="secondary">本次命中文档</Typography.Text>
-                                                    {runCandidates.slice(0, 4).map((candidate) => {
-                                                        const keywords = metadataStringList(candidate.metadata.matched_policy_keywords);
-                                                        return (
-                                                            <div key={`${run.run_id}-${candidate.candidate_id}`} className="admin-crawler-hit-row">
-                                                                <Space size={6} wrap>
-                                                                    <Typography.Text strong>{candidateDisplayTitle(candidate)}</Typography.Text>
-                                                                    <Tag color={candidate.metadata.index_status === "indexed" ? "green" : "default"}>
-                                                                        {formatMetadataText(candidate.metadata.index_status) ?? candidate.status}
-                                                                    </Tag>
-                                                                    {keywords.slice(0, 5).map((keyword) => (
-                                                                        <Tag key={`${candidate.candidate_id}-${keyword}`} color="blue">
-                                                                            {keyword}
-                                                                        </Tag>
-                                                                    ))}
-                                                                </Space>
-                                                                <Typography.Link href={candidate.url} target="_blank" rel="noreferrer" ellipsis>
-                                                                    {candidate.url}
-                                                                </Typography.Link>
-                                                            </div>
-                                                        );
-                                                    })}
                                                 </Space>
-                                            ) : null}
-                                        </Space>
-                                    </List.Item>
-                                    );
-                                }}
+                                                <Table
+                                                    rowKey="candidate_id"
+                                                    size="small"
+                                                    columns={policyCrawlerCandidateColumns}
+                                                    dataSource={policyCrawlerCandidates}
+                                                    rowSelection={{
+                                                        selectedRowKeys: selectedCrawlerCandidateIds,
+                                                        onChange: (keys) => setSelectedCrawlerCandidateIds(keys.map(String)),
+                                                    }}
+                                                    pagination={{
+                                                        current: policyCrawlerCandidatePage,
+                                                        pageSize: 20,
+                                                        total: policyCrawlerCandidateTotal,
+                                                        onChange: (page) => setPolicyCrawlerCandidatePage(page),
+                                                    }}
+                                                    scroll={{ y: 520, x: 1200 }}
+                                                    tableLayout="fixed"
+                                                    sticky
+                                                    locale={{ emptyText: <Empty description="暂无候选文档。" /> }}
+                                                />
+                                            </Space>
+                                        ),
+                                    },
+                                    {
+                                        key: "runs",
+                                        label: "运行记录",
+                                        children: (
+                                            <Table
+                                                rowKey="run_id"
+                                                size="small"
+                                                columns={policyCrawlerRunColumns}
+                                                dataSource={policyCrawlerRuns}
+                                                pagination={{
+                                                    current: policyCrawlerRunPage,
+                                                    pageSize: 20,
+                                                    total: policyCrawlerRunTotal,
+                                                    onChange: (page) => setPolicyCrawlerRunPage(page),
+                                                }}
+                                                scroll={{ y: 520, x: 1200 }}
+                                                tableLayout="fixed"
+                                                sticky
+                                                locale={{ emptyText: <Empty description="暂无运行记录。" /> }}
+                                            />
+                                        ),
+                                    },
+                                    {
+                                        key: "auto-kb",
+                                        label: "自动爬虫知识库",
+                                        children: (
+                                            <Space direction="vertical" size={12} style={{ width: "100%" }}>
+                                                <Alert
+                                                    showIcon
+                                                    type={policyCrawlerAutoKbStatus?.found ? "success" : "info"}
+                                                    message="自动爬虫知识库"
+                                                    description="系统自动维护 / 管理员只读。合格候选通过 quick pipeline 后进入该共享知识库，普通用户可在 AskPage 混合检索中引用。"
+                                                />
+                                                <Descriptions bordered size="small" column={2}>
+                                                    <Descriptions.Item label="KB">
+                                                        {policyCrawlerAutoKbStatus?.kb_name ?? "自动爬虫知识库"}
+                                                    </Descriptions.Item>
+                                                    <Descriptions.Item label="状态">
+                                                        {policyCrawlerAutoKbStatus?.found ? "已创建" : "尚未创建"}
+                                                    </Descriptions.Item>
+                                                    <Descriptions.Item label="文档数">
+                                                        {policyCrawlerAutoKbStatus?.document_count ?? 0}
+                                                    </Descriptions.Item>
+                                                    <Descriptions.Item label="已入库片段">
+                                                        {policyCrawlerAutoKbStatus?.indexed_chunk_count ?? 0}
+                                                    </Descriptions.Item>
+                                                    <Descriptions.Item label="最近抓取">
+                                                        {policyCrawlerAutoKbStatus?.latest_run_id ?? "暂无"}
+                                                    </Descriptions.Item>
+                                                    <Descriptions.Item label="最近入库">
+                                                        {policyCrawlerAutoKbStatus?.latest_ingest_status ?? "暂无"}
+                                                    </Descriptions.Item>
+                                                </Descriptions>
+                                                <Space size={8} wrap>
+                                                    <Button onClick={() => navigate("/kb")}>跳转知识库工作台</Button>
+                                                    <Button icon={<SyncOutlined />} onClick={() => void fetchPolicyCrawlerWorkspace()}>
+                                                        刷新状态
+                                                    </Button>
+                                                </Space>
+                                                <Table
+                                                    rowKey="candidate_id"
+                                                    size="small"
+                                                    columns={policyCrawlerCandidateColumns}
+                                                    dataSource={policyCrawlerAutoKbStatus?.recent_results ?? []}
+                                                    pagination={false}
+                                                    scroll={{ y: 360, x: 1200 }}
+                                                    tableLayout="fixed"
+                                                    locale={{ emptyText: <Empty description="暂无自动入库结果。" /> }}
+                                                />
+                                            </Space>
+                                        ),
+                                    },
+                                ]}
                             />
                         </Space>
                     </Card>
@@ -1982,6 +2187,16 @@ export function AdminPlaceholderPage() {
                         title="用户列表"
                         extra={
                             <Space size={8} wrap>
+                                <Button
+                                    type="primary"
+                                    icon={<PlusOutlined />}
+                                    onClick={() => {
+                                        createUserForm.setFieldsValue({ role: "user" });
+                                        setCreateUserModalOpen(true);
+                                    }}
+                                >
+                                    {currentUser?.role === "super_admin" ? "创建用户 / admin" : "创建用户"}
+                                </Button>
                                 <Input.Search
                                     allowClear
                                     value={userSearchQuery}
@@ -2065,6 +2280,69 @@ export function AdminPlaceholderPage() {
                 />
                 </>
             )}
+
+            <Modal
+                title="创建账号"
+                open={createUserModalOpen}
+                okText="创建"
+                confirmLoading={creatingUser}
+                onOk={() => void createUserForm.submit()}
+                onCancel={() => {
+                    if (creatingUser) {
+                        return;
+                    }
+                    setCreateUserModalOpen(false);
+                    createUserForm.resetFields();
+                }}
+            >
+                <Alert
+                    showIcon
+                    type="info"
+                    style={{ marginBottom: 16 }}
+                    message="普通 admin 只能创建 user；admin 账号必须由 super admin 创建。"
+                />
+                <Form<CreateAdminUserRequest>
+                    form={createUserForm}
+                    layout="vertical"
+                    initialValues={{ role: "user" }}
+                    onFinish={(values) => void handleCreateUser(values)}
+                >
+                    <Form.Item
+                        name="username"
+                        label="账号"
+                        rules={[
+                            { required: true, message: "请输入账号。" },
+                            { min: 3, max: 32, message: "账号长度需为 3-32 位。" },
+                            { pattern: /^[a-zA-Z0-9_-]+$/u, message: "账号只能包含字母、数字、下划线或短横线。" },
+                        ]}
+                    >
+                        <Input placeholder="例如：operator01" autoComplete="off" />
+                    </Form.Item>
+                    <Form.Item name="display_name" label="展示名" rules={[{ max: 64, message: "展示名最多 64 个字符。" }]}>
+                        <Input placeholder="可选" autoComplete="off" />
+                    </Form.Item>
+                    <Form.Item
+                        name="password"
+                        label="初始密码"
+                        rules={[
+                            { required: true, message: "请输入初始密码。" },
+                            { min: 6, max: 128, message: "密码长度需为 6-128 位。" },
+                        ]}
+                    >
+                        <Input.Password placeholder="至少 6 位" autoComplete="new-password" />
+                    </Form.Item>
+                    <Form.Item name="role" label="账号角色" rules={[{ required: true, message: "请选择账号角色。" }]}>
+                        <Select
+                            options={[
+                                { label: "user（普通用户）", value: "user" },
+                                ...(currentUser?.role === "super_admin"
+                                    ? [{ label: "admin（管理员）", value: "admin" }]
+                                    : []),
+                            ]}
+                        />
+                    </Form.Item>
+                </Form>
+            </Modal>
 
             <Modal
                 title="确认删除用户账号"
@@ -2231,6 +2509,21 @@ export function AdminPlaceholderPage() {
                     </Space>
                 </Form>
             </Modal>
+            <CrawlerCandidateDrawer
+                open={Boolean(selectedCrawlerCandidate)}
+                candidate={selectedCrawlerCandidate}
+                onClose={() => setSelectedCrawlerCandidate(null)}
+                onPreviewFile={(candidate) =>
+                    setFilePreviewTarget({
+                        sourceType: "crawler_candidate",
+                        sourceId: candidate.candidate_id,
+                    })
+                }
+                onPublishToRag={(candidateId) => void handlePublishPolicyCandidateToRag(candidateId)}
+                onPublishLegacy={(candidateId) => void handlePublishPolicyCandidate(candidateId)}
+                onReject={(candidateId) => void handleRejectPolicyCandidate(candidateId)}
+                reviewingCandidateId={reviewingCandidateId}
+            />
             <FilePreviewDrawer
                 open={Boolean(filePreviewTarget)}
                 target={filePreviewTarget}

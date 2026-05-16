@@ -581,7 +581,7 @@ class RagKnowledgeStore:
             params.append(owner_user_id)
 
         if knowledge_scope == "public":
-            clauses.append("d.source_type = 'public_policy_web'")
+            clauses.append("d.source_type IN ('public_policy_web', 'public_policy')")
         elif knowledge_scope == "private_sample":
             if allowed_knowledge_item_ids:
                 placeholders = ", ".join(self._placeholder() for _ in allowed_knowledge_item_ids)
@@ -592,10 +592,10 @@ class RagKnowledgeStore:
                 params.append(owner_user_id)
         elif allowed_knowledge_item_ids:
             placeholders = ", ".join(self._placeholder() for _ in allowed_knowledge_item_ids)
-            clauses.append(f"(d.source_type = 'public_policy_web' OR d.knowledge_item_id IN ({placeholders}))")
+            clauses.append(f"(d.source_type IN ('public_policy_web', 'public_policy') OR d.knowledge_item_id IN ({placeholders}))")
             params.extend(allowed_knowledge_item_ids)
         else:
-            clauses.append("(d.owner_user_id = {p} OR d.source_type = 'public_policy_web')")
+            clauses.append("(d.owner_user_id = {p} OR d.source_type IN ('public_policy_web', 'public_policy'))")
             params.append(owner_user_id)
 
         rows = self._select(

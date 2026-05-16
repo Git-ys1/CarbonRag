@@ -2,6 +2,7 @@ import sqlite3
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from app.admin.schemas import (
@@ -10,14 +11,21 @@ from app.admin.schemas import (
     AdminPrivateSampleItem,
     AdminSystemStatus,
     AdminUserSummary,
+    CreateAdminUserRequest,
     KnowledgeRefreshTask,
     KnowledgeRefreshStatus,
     KnowledgeRefreshScope,
+    PolicyCrawlerAutoRagKbStatus,
+    PolicyCrawlerBatchPublishItem,
+    PolicyCrawlerBatchPublishResponse,
     PolicyCrawlerCandidateStatus,
     PolicyCrawlerCandidateArtifactsSummary,
+    PolicyCrawlerCandidatePage,
     PolicyCrawlerCandidateSummary,
     PolicyCrawlerDryRunSummary,
     PolicyCrawlerRecommendedImportSummary,
+    PolicyCrawlerRunPage,
+    PolicyCrawlerRunRequest,
     PolicyCrawlerRunSummary,
     PolicyCrawlerSourceSummary,
     PolicyCrawlerSourceUpsertRequest,
@@ -31,7 +39,7 @@ from app.admin.schemas import (
     PolicyShowcaseWorkflowSummary,
 )
 from app.ai_runtime.providers.factory import get_chat_provider
-from app.auth.schemas import UserRole
+from app.auth.schemas import RegisterRequest, UserRole
 from app.auth.service import AuthService, get_auth_service
 from app.core.config import get_settings
 from app.knowledge import get_knowledge_service
@@ -113,7 +121,38 @@ class AdminService:
             )
         return items
 
-    def update_user(self, *, user_id: str, role: UserRole, is_active: bool):
+    def create_user(self, *, payload: CreateAdminUserRequest, actor_role: str) -> AdminUserSummary:
+        if payload.role == "admin" and actor_role != "super_admin":
+            raise PermissionError("Only super_admin can create admin accounts.")
+        user = self.auth_service.register(
+            RegisterRequest(
+                username=payload.username,
+                display_name=payload.display_name,
+                password=payload.password,
+            )
+        )
+        if payload.role == "admin":
+            user = self.auth_service.update_user(user_id=user.user_id, role="admin", is_active=True)
+        return AdminUserSummary(
+            user_id=user.user_id,
+            username=user.username,
+            display_name=user.display_name,
+            role=user.role,
+            is_active=user.is_active,
+            password_must_change=user.password_must_change,
+            created_at=user.created_at,
+            last_login_at=user.last_login_at,
+            session_count=0,
+            report_count=0,
+            feedback_count=0,
+        )
+
+    def update_user(self, *, user_id: str, role: UserRole, is_active: bool, actor_role: str = "admin"):
+        current = next((user for user in self.auth_service.list_users() if user.user_id == user_id), None)
+        if current is None:
+            raise KeyError(user_id)
+        if actor_role != "super_admin" and (role == "admin" or current.role == "admin"):
+            raise PermissionError("Only super_admin can create or modify admin accounts.")
         return self.auth_service.update_user(user_id=user_id, role=role, is_active=is_active)
 
     def reset_password(self, *, user_id: str) -> str:
@@ -393,12 +432,19 @@ class AdminService:
         *,
         source_id: str,
         requested_by_user_id: str | None,
+        payload: PolicyCrawlerRunRequest | None = None,
     ) -> PolicyCrawlerRunSummary:
         scheduler = get_policy_crawler_scheduler()
         run = scheduler.run_source_now(
             source_id=source_id,
             triggered_by_user_id=requested_by_user_id,
         )
+        if payload and payload.auto_rag_ingest_enabled:
+            run = self._auto_ingest_policy_crawler_run(
+                run_id=run.run_id,
+                reviewed_by_user_id=requested_by_user_id,
+                payload=payload,
+            )
         return PolicyCrawlerRunSummary.model_validate(run.model_dump(mode="python"))
 
     def list_policy_crawler_runs(
@@ -413,18 +459,81 @@ class AdminService:
             for run in scheduler.list_runs(source_id=source_id, limit=limit)
         ]
 
+    def list_policy_crawler_runs_page(
+        self,
+        *,
+        source_id: str | None = None,
+        status: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+        sort_by: str = "started_at",
+        sort_order: str = "desc",
+    ) -> PolicyCrawlerRunPage:
+        scheduler = get_policy_crawler_scheduler()
+        runs, total = scheduler.store.list_runs_page(
+            source_id=source_id,
+            status=status,  # type: ignore[arg-type]
+            page=page,
+            page_size=page_size,
+            sort_by=sort_by,
+            sort_order=sort_order,
+        )
+        safe_page_size = max(1, min(page_size, 100))
+        return PolicyCrawlerRunPage(
+            items=[PolicyCrawlerRunSummary.model_validate(run.model_dump(mode="python")) for run in runs],
+            total=total,
+            page=max(1, page),
+            page_size=safe_page_size,
+        )
+
     def list_policy_crawler_candidates(
         self,
         *,
         status: PolicyCrawlerCandidateStatus | None = None,
         source_id: str | None = None,
+        run_id: str | None = None,
         limit: int = 50,
     ) -> list[PolicyCrawlerCandidateSummary]:
         scheduler = get_policy_crawler_scheduler()
         return [
             PolicyCrawlerCandidateSummary.model_validate(candidate.model_dump(mode="python"))
-            for candidate in scheduler.list_candidates(status=status, source_id=source_id, limit=limit)
+            for candidate in scheduler.list_candidates(status=status, source_id=source_id, run_id=run_id, limit=limit)
         ]
+
+    def list_policy_crawler_candidates_page(
+        self,
+        *,
+        status: PolicyCrawlerCandidateStatus | None = None,
+        source_id: str | None = None,
+        run_id: str | None = None,
+        rag_pipeline_status: str | None = None,
+        topic_class: str | None = None,
+        query: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+        sort_by: str = "updated_at",
+        sort_order: str = "desc",
+    ) -> PolicyCrawlerCandidatePage:
+        scheduler = get_policy_crawler_scheduler()
+        candidates, total = scheduler.store.list_candidates_page(
+            status=status,
+            source_id=source_id,
+            run_id=run_id,
+            rag_pipeline_status=rag_pipeline_status,
+            topic_class=topic_class,
+            query=query,
+            page=page,
+            page_size=page_size,
+            sort_by=sort_by,
+            sort_order=sort_order,
+        )
+        safe_page_size = max(1, min(page_size, 100))
+        return PolicyCrawlerCandidatePage(
+            items=[PolicyCrawlerCandidateSummary.model_validate(candidate.model_dump(mode="python")) for candidate in candidates],
+            total=total,
+            page=max(1, page),
+            page_size=safe_page_size,
+        )
 
     def get_policy_crawler_candidate_artifacts(self, *, candidate_id: str) -> PolicyCrawlerCandidateArtifactsSummary:
         scheduler = get_policy_crawler_scheduler()
@@ -550,6 +659,174 @@ class AdminService:
             raise KeyError(candidate_id)
         self._clear_retrieval_caches("public_policy")
         return PolicyCrawlerCandidateSummary.model_validate(candidate.model_dump(mode="python"))
+
+    def batch_publish_policy_crawler_candidates_to_rag(
+        self,
+        *,
+        candidate_ids: list[str],
+        reviewed_by_user_id: str | None,
+        skip_duplicates: bool = True,
+    ) -> PolicyCrawlerBatchPublishResponse:
+        items: list[PolicyCrawlerBatchPublishItem] = []
+        for candidate_id in candidate_ids:
+            item = self._publish_candidate_to_rag_item(
+                candidate_id=candidate_id,
+                reviewed_by_user_id=reviewed_by_user_id,
+                skip_duplicates=skip_duplicates,
+            )
+            items.append(item)
+        return PolicyCrawlerBatchPublishResponse(
+            total=len(items),
+            published=sum(1 for item in items if item.status == "published"),
+            skipped=sum(1 for item in items if item.status == "skipped"),
+            failed=sum(1 for item in items if item.status == "failed"),
+            items=items,
+        )
+
+    def get_policy_crawler_auto_rag_kb_status(self) -> PolicyCrawlerAutoRagKbStatus:
+        from app.rag.kb.crawler_bridge import AUTO_CRAWLER_RAG_KB_NAME, OFFICIAL_POLICY_RAG_KB_NAME, SYSTEM_POLICY_CRAWLER_USER_ID
+        from app.rag.spine import get_rag_spine_service
+
+        service = get_rag_spine_service()
+        kbs = service.list_kbs(owner_user_id=SYSTEM_POLICY_CRAWLER_USER_ID)
+        kb = next((item for item in kbs if item.name in {AUTO_CRAWLER_RAG_KB_NAME, OFFICIAL_POLICY_RAG_KB_NAME}), None)
+        scheduler = get_policy_crawler_scheduler()
+        recent_candidates = scheduler.list_candidates(limit=20)
+        recent_results = [
+            PolicyCrawlerCandidateSummary.model_validate(candidate.model_dump(mode="python"))
+            for candidate in recent_candidates
+            if candidate.metadata.get("rag_kb_id") and candidate.metadata.get("publish_target") == "rag_pro_kb"
+        ][:8]
+        latest_run = scheduler.list_runs(limit=1)
+        if kb is None:
+            return PolicyCrawlerAutoRagKbStatus(
+                found=False,
+                latest_run_id=latest_run[0].run_id if latest_run else None,
+                latest_run_status=latest_run[0].status if latest_run else None,
+                recent_results=recent_results,
+            )
+        documents = service.list_documents(owner_user_id=SYSTEM_POLICY_CRAWLER_USER_ID, kb_id=kb.kb_id)
+        indexed_chunk_count = sum(doc.indexed_chunk_count for doc in documents)
+        latest_ingest = next((candidate for candidate in recent_results if candidate.rag_pipeline_status), None)
+        return PolicyCrawlerAutoRagKbStatus(
+            kb_id=kb.kb_id,
+            kb_name=AUTO_CRAWLER_RAG_KB_NAME,
+            found=True,
+            visibility=kb.visibility,
+            document_count=len(documents),
+            indexed_chunk_count=indexed_chunk_count,
+            latest_run_id=latest_run[0].run_id if latest_run else None,
+            latest_run_status=latest_run[0].status if latest_run else None,
+            latest_ingest_status=latest_ingest.rag_pipeline_status if latest_ingest else None,
+            latest_ingest_at=latest_ingest.updated_at if latest_ingest else None,
+            recent_results=recent_results,
+        )
+
+    def _auto_ingest_policy_crawler_run(
+        self,
+        *,
+        run_id: str,
+        reviewed_by_user_id: str | None,
+        payload: PolicyCrawlerRunRequest,
+    ):
+        scheduler = get_policy_crawler_scheduler()
+        candidates = scheduler.list_candidates(run_id=run_id, limit=200)
+        items: list[PolicyCrawlerBatchPublishItem] = []
+        for candidate in candidates:
+            skip_reason = self._auto_rag_skip_reason(candidate, payload=payload)
+            if skip_reason:
+                items.append(
+                    PolicyCrawlerBatchPublishItem(
+                        candidate_id=candidate.candidate_id,
+                        status="skipped",
+                        reason=skip_reason,
+                    )
+                )
+                continue
+            items.append(
+                self._publish_candidate_to_rag_item(
+                    candidate_id=candidate.candidate_id,
+                    reviewed_by_user_id=reviewed_by_user_id,
+                    skip_duplicates=payload.auto_rag_ingest_skip_duplicate,
+                )
+            )
+        metadata = {
+            "auto_rag_ingest_enabled": True,
+            "auto_rag_attempted_count": sum(1 for item in items if item.status != "skipped"),
+            "auto_rag_indexed_count": sum(1 for item in items if item.status == "published"),
+            "auto_rag_failed_count": sum(1 for item in items if item.status == "failed"),
+            "auto_rag_skipped_count": sum(1 for item in items if item.status == "skipped"),
+            "auto_rag_items": [item.model_dump(mode="python") for item in items],
+            "target_kb_id": self._auto_crawler_target_kb_id(),
+            "target_kb_name": "自动爬虫知识库",
+            "auto_rag_thresholds": payload.model_dump(mode="python"),
+        }
+        return scheduler.store.update_run_metadata(run_id=run_id, metadata=metadata)
+
+    def _auto_rag_skip_reason(self, candidate, *, payload: PolicyCrawlerRunRequest) -> str | None:
+        metadata = candidate.metadata
+        if candidate.status == "rejected":
+            return "rejected_candidate"
+        if payload.auto_rag_ingest_skip_duplicate and metadata.get("skip_reason") == "duplicate_content_hash":
+            if metadata.get("rag_doc_id"):
+                return "already_indexed"
+            return "duplicate_content_hash"
+        if int(metadata.get("candidate_quality_score") or 0) < payload.auto_rag_ingest_min_quality:
+            return "low_quality"
+        if int(metadata.get("extraction_quality_score") or 0) < payload.auto_rag_ingest_min_extraction:
+            return "low_extraction_score"
+        if int(metadata.get("markdown_size") or 0) < payload.auto_rag_ingest_min_markdown_size:
+            return "small_markdown"
+        if int(metadata.get("estimated_chunk_count") or 0) <= 0:
+            return "zero_estimated_chunks"
+        return None
+
+    def _publish_candidate_to_rag_item(
+        self,
+        *,
+        candidate_id: str,
+        reviewed_by_user_id: str | None,
+        skip_duplicates: bool,
+    ) -> PolicyCrawlerBatchPublishItem:
+        scheduler = get_policy_crawler_scheduler()
+        candidate = scheduler.store.get_candidate(candidate_id)
+        if candidate is None:
+            return PolicyCrawlerBatchPublishItem(candidate_id=candidate_id, status="failed", reason="not_found")
+        if skip_duplicates and candidate.metadata.get("skip_reason") == "duplicate_content_hash" and candidate.metadata.get("rag_doc_id"):
+            return PolicyCrawlerBatchPublishItem(
+                candidate_id=candidate_id,
+                status="skipped",
+                rag_doc_id=str(candidate.metadata.get("rag_doc_id")),
+                indexed_chunk_count=int(candidate.metadata.get("rag_indexed_chunk_count") or 0),
+                reason="already_indexed",
+            )
+        try:
+            publish_crawled_candidate_to_rag_kb(
+                candidate_id=candidate_id,
+                reviewed_by_user_id=reviewed_by_user_id,
+            )
+            refreshed = scheduler.store.get_candidate(candidate_id)
+            metadata = refreshed.metadata if refreshed is not None else {}
+            self._clear_retrieval_caches("public_policy")
+            return PolicyCrawlerBatchPublishItem(
+                candidate_id=candidate_id,
+                status="published",
+                rag_doc_id=metadata.get("rag_doc_id"),
+                indexed_chunk_count=int(metadata.get("rag_indexed_chunk_count") or metadata.get("indexed_chunk_count") or 0),
+                reason=None,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return PolicyCrawlerBatchPublishItem(
+                candidate_id=candidate_id,
+                status="failed",
+                reason=str(exc),
+            )
+
+    def _auto_crawler_target_kb_id(self) -> str | None:
+        try:
+            return self.get_policy_crawler_auto_rag_kb_status().kb_id
+        except Exception:
+            return None
 
     def reject_policy_crawler_candidate(
         self,

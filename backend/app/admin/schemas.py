@@ -25,6 +25,15 @@ class AdminUserSummary(BaseModel):
     feedback_count: int = 0
 
 
+class CreateAdminUserRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    username: str = Field(min_length=3, max_length=32)
+    display_name: str | None = Field(default=None, max_length=64)
+    password: str = Field(min_length=6, max_length=128)
+    role: Literal["user", "admin"] = "user"
+
+
 class UpdateAdminUserRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -264,6 +273,16 @@ class PolicyCrawlerRecommendedImportSummary(BaseModel):
     sources: list[PolicyCrawlerSourceSummary] = Field(default_factory=list)
 
 
+class PolicyCrawlerRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    auto_rag_ingest_enabled: bool = False
+    auto_rag_ingest_min_quality: int = Field(default=60, ge=0, le=100)
+    auto_rag_ingest_min_extraction: int = Field(default=60, ge=0, le=100)
+    auto_rag_ingest_min_markdown_size: int = Field(default=800, ge=0, le=100_000)
+    auto_rag_ingest_skip_duplicate: bool = True
+
+
 class PolicyCrawlerRunSummary(BaseModel):
     run_id: str
     source_id: str
@@ -277,6 +296,33 @@ class PolicyCrawlerRunSummary(BaseModel):
     candidate_count: int = 0
     error_detail: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+    auto_rag_attempted_count: int = 0
+    auto_rag_indexed_count: int = 0
+    auto_rag_failed_count: int = 0
+    auto_rag_skipped_count: int = 0
+    target_kb_id: str | None = None
+    target_kb_name: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def derive_auto_rag_fields(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        metadata = value.get("metadata") if isinstance(value.get("metadata"), dict) else {}
+        value.setdefault("auto_rag_attempted_count", metadata.get("auto_rag_attempted_count") or metadata.get("auto_published_count") or 0)
+        value.setdefault("auto_rag_indexed_count", metadata.get("auto_rag_indexed_count") or metadata.get("auto_indexed_count") or 0)
+        value.setdefault("auto_rag_failed_count", metadata.get("auto_rag_failed_count") or metadata.get("auto_index_failed_count") or 0)
+        value.setdefault("auto_rag_skipped_count", metadata.get("auto_rag_skipped_count") or 0)
+        value.setdefault("target_kb_id", metadata.get("target_kb_id") or metadata.get("rag_kb_id"))
+        value.setdefault("target_kb_name", metadata.get("target_kb_name") or metadata.get("rag_kb_name"))
+        return value
+
+
+class PolicyCrawlerRunPage(BaseModel):
+    items: list[PolicyCrawlerRunSummary] = Field(default_factory=list)
+    total: int = 0
+    page: int = 1
+    page_size: int = 20
 
 
 class PolicyCrawlerCandidateSummary(BaseModel):
@@ -315,6 +361,7 @@ class PolicyCrawlerCandidateSummary(BaseModel):
     quality_breakdown: dict[str, Any] = Field(default_factory=dict)
     matched_keywords: list[str] = Field(default_factory=list)
     skip_reason: str | None = None
+    duplicate_reason: str | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -341,7 +388,54 @@ class PolicyCrawlerCandidateSummary(BaseModel):
         raw_keywords = metadata.get("matched_keywords") or metadata.get("matched_policy_keywords")
         value.setdefault("matched_keywords", raw_keywords if isinstance(raw_keywords, list) else [])
         value.setdefault("skip_reason", metadata.get("skip_reason"))
+        value.setdefault("duplicate_reason", metadata.get("duplicate_reason"))
         return value
+
+
+class PolicyCrawlerCandidatePage(BaseModel):
+    items: list[PolicyCrawlerCandidateSummary] = Field(default_factory=list)
+    total: int = 0
+    page: int = 1
+    page_size: int = 20
+
+
+class PolicyCrawlerBatchPublishRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    candidate_ids: list[str] = Field(min_length=1, max_length=100)
+    target_kb_policy: Literal["auto_crawler_default"] = "auto_crawler_default"
+    skip_duplicates: bool = True
+
+
+class PolicyCrawlerBatchPublishItem(BaseModel):
+    candidate_id: str
+    status: Literal["published", "skipped", "failed"]
+    rag_doc_id: str | None = None
+    indexed_chunk_count: int = 0
+    reason: str | None = None
+
+
+class PolicyCrawlerBatchPublishResponse(BaseModel):
+    total: int = 0
+    published: int = 0
+    skipped: int = 0
+    failed: int = 0
+    items: list[PolicyCrawlerBatchPublishItem] = Field(default_factory=list)
+
+
+class PolicyCrawlerAutoRagKbStatus(BaseModel):
+    kb_id: str | None = None
+    kb_name: str = "自动爬虫知识库"
+    legacy_kb_name: str = "官方政策自动更新库"
+    found: bool = False
+    visibility: str | None = None
+    document_count: int = 0
+    indexed_chunk_count: int = 0
+    latest_run_id: str | None = None
+    latest_run_status: str | None = None
+    latest_ingest_status: str | None = None
+    latest_ingest_at: datetime | None = None
+    recent_results: list[PolicyCrawlerCandidateSummary] = Field(default_factory=list)
 
 
 class PolicyCrawlerCandidateArtifactsSummary(BaseModel):

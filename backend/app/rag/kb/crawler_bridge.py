@@ -7,6 +7,7 @@ from app.knowledge.policy_live_crawler import PolicyCrawlerCandidate, get_policy
 from app.rag.kb.models import KnowledgeBase, KnowledgeBaseCreate, RagDocumentCreate, RagPipelineResult
 from app.rag.spine import RagSpineService, get_rag_spine_service
 
+AUTO_CRAWLER_RAG_KB_NAME = "自动爬虫知识库"
 OFFICIAL_POLICY_RAG_KB_NAME = "官方政策自动更新库"
 SYSTEM_POLICY_CRAWLER_USER_ID = "system-policy-crawler"
 
@@ -30,7 +31,7 @@ def publish_crawled_candidate_to_rag_kb(
         raise ValueError(f"candidate quality score {quality_score} is below 60; review manually before RAG publish")
     _validate_candidate_artifacts(candidate)
     service = rag_service or get_rag_spine_service()
-    owner_user_id = reviewed_by_user_id or SYSTEM_POLICY_CRAWLER_USER_ID
+    owner_user_id = SYSTEM_POLICY_CRAWLER_USER_ID
     kb = _ensure_official_policy_kb(service=service, owner_user_id=owner_user_id)
     doc = service.create_document(
         owner_user_id=owner_user_id,
@@ -93,13 +94,13 @@ def publish_crawled_candidate_to_rag_kb(
 
 def _ensure_official_policy_kb(*, service: RagSpineService, owner_user_id: str) -> KnowledgeBase:
     for kb in service.list_kbs(owner_user_id=owner_user_id):
-        if kb.name == OFFICIAL_POLICY_RAG_KB_NAME:
+        if kb.name in {AUTO_CRAWLER_RAG_KB_NAME, OFFICIAL_POLICY_RAG_KB_NAME}:
             return kb
     return service.create_kb(
         owner_user_id=owner_user_id,
         payload=KnowledgeBaseCreate(
-            name=OFFICIAL_POLICY_RAG_KB_NAME,
-            description="由官方政策 crawler 审核发布后自动写入的共享 RAG-Pro 知识库。",
+            name=AUTO_CRAWLER_RAG_KB_NAME,
+            description="由官方政策 crawler 审核发布后自动写入的共享 RAG-Pro 知识库，系统自动维护，管理员只读。",
             visibility="shared",
             retrieval_mode="hybrid_rerank",
         ),
@@ -199,7 +200,8 @@ def _rag_metadata(
         "publish_target": "rag_pro_kb",
         "publish_mode": "manual_rag",
         "rag_kb_id": kb.kb_id,
-        "rag_kb_name": kb.name,
+        "rag_kb_name": AUTO_CRAWLER_RAG_KB_NAME,
+        "rag_kb_storage_name": kb.name,
         "rag_doc_id": resolved_doc_id,
         "rag_pipeline_mode": "quick",
         "rag_pipeline_status": "failed" if failed_stage or (result and result.failed_stage) else "indexed",

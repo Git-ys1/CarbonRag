@@ -14,6 +14,13 @@ export interface AdminUserSummary {
     feedback_count: number;
 }
 
+export interface CreateAdminUserRequest {
+    username: string;
+    display_name?: string | null;
+    password: string;
+    role: "user" | "admin";
+}
+
 export interface UpdateAdminUserRequest {
     role: UserRole;
     is_active: boolean;
@@ -236,6 +243,14 @@ export interface PolicyCrawlerRecommendedImportSummary {
     sources: PolicyCrawlerSourceSummary[];
 }
 
+export interface PolicyCrawlerRunRequest {
+    auto_rag_ingest_enabled?: boolean;
+    auto_rag_ingest_min_quality?: number;
+    auto_rag_ingest_min_extraction?: number;
+    auto_rag_ingest_min_markdown_size?: number;
+    auto_rag_ingest_skip_duplicate?: boolean;
+}
+
 export interface PolicyCrawlerRunSummary {
     run_id: string;
     source_id: string;
@@ -249,6 +264,19 @@ export interface PolicyCrawlerRunSummary {
     candidate_count: number;
     error_detail: string | null;
     metadata: Record<string, unknown>;
+    auto_rag_attempted_count?: number;
+    auto_rag_indexed_count?: number;
+    auto_rag_failed_count?: number;
+    auto_rag_skipped_count?: number;
+    target_kb_id?: string | null;
+    target_kb_name?: string | null;
+}
+
+export interface PolicyCrawlerRunPage {
+    items: PolicyCrawlerRunSummary[];
+    total: number;
+    page: number;
+    page_size: number;
 }
 
 export interface PolicyCrawlerCandidateSummary {
@@ -287,6 +315,51 @@ export interface PolicyCrawlerCandidateSummary {
     quality_breakdown?: Record<string, unknown>;
     matched_keywords?: string[];
     skip_reason?: string | null;
+    duplicate_reason?: string | null;
+}
+
+export interface PolicyCrawlerCandidatePage {
+    items: PolicyCrawlerCandidateSummary[];
+    total: number;
+    page: number;
+    page_size: number;
+}
+
+export interface PolicyCrawlerBatchPublishRequest {
+    candidate_ids: string[];
+    target_kb_policy?: "auto_crawler_default";
+    skip_duplicates?: boolean;
+}
+
+export interface PolicyCrawlerBatchPublishItem {
+    candidate_id: string;
+    status: "published" | "skipped" | "failed";
+    rag_doc_id: string | null;
+    indexed_chunk_count: number;
+    reason: string | null;
+}
+
+export interface PolicyCrawlerBatchPublishResponse {
+    total: number;
+    published: number;
+    skipped: number;
+    failed: number;
+    items: PolicyCrawlerBatchPublishItem[];
+}
+
+export interface PolicyCrawlerAutoRagKbStatus {
+    kb_id: string | null;
+    kb_name: string;
+    legacy_kb_name: string;
+    found: boolean;
+    visibility: string | null;
+    document_count: number;
+    indexed_chunk_count: number;
+    latest_run_id: string | null;
+    latest_run_status: string | null;
+    latest_ingest_status: string | null;
+    latest_ingest_at: string | null;
+    recent_results: PolicyCrawlerCandidateSummary[];
 }
 
 export interface PolicyCrawlerCandidateArtifactsSummary {
