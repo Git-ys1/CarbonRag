@@ -14,7 +14,7 @@ from app.ai_runtime.runtime.guards import (
 from app.ai_runtime.runtime.response_formatter import format_runtime_result
 from app.ai_runtime.schemas.chat import ChatRequest
 from app.ai_runtime.schemas.result import RuntimeResult
-from app.ai_runtime.schemas.tool import ToolCall
+from app.ai_runtime.schemas.tool import ToolCall, ToolResult
 from app.ai_runtime.tools.registry import ToolRegistry, build_default_registry
 from app.core.config import get_settings
 
@@ -43,6 +43,90 @@ class RuntimeStreamHandle:
     state: RuntimeStreamState
 
 
+REPORT_FILE_INTENT_KEYWORDS = (
+    "生成报告",
+    "导出报告",
+    "下载报告",
+    "创建报告",
+    "新建报告",
+    "报告文件",
+    "可下载报告",
+    "生成文件",
+    "导出文件",
+    "创建文件",
+    "新建文件",
+    "保存为",
+    "整理成报告",
+    "写成报告",
+    "做成报告",
+    "整理成文件",
+    "写成文件",
+    "做成文件",
+    "下载链接",
+    "文件链接",
+    "可下载",
+    "word文档",
+    "word 文件",
+    "docx 文件",
+    "report file",
+    "create report",
+    "export report",
+    "download report",
+    "download link",
+)
+
+REPORT_FILE_WORDS = ("word", "docx", "pdf", "报告文件", "文件")
+REPORT_FILE_ACTION_WORDS = (
+    "生成",
+    "创建",
+    "新建",
+    "导出",
+    "下载",
+    "保存",
+    "整理",
+    "做成",
+    "写成",
+    "给我",
+    "来一份",
+    "create",
+    "export",
+    "download",
+    "save",
+)
+
+ASSISTANT_REPORT_OFFER_KEYWORDS = (
+    "如果你愿意",
+    "如果你要",
+    "如果你需要",
+    "我下一条",
+    "下一条",
+    "我可以",
+    "可以直接输出",
+    "可以马上",
+    "可以立即",
+    "建议下一步",
+    "回复一个编号",
+)
+ASSISTANT_REPORT_ARTIFACT_KEYWORDS = (
+    "正式文件",
+    "报告正文",
+    "正式版",
+    "简版报告",
+    "管理层摘要",
+    "ppt汇报",
+    "ppt 汇报",
+    "word",
+    "docx",
+    "pdf",
+    "下载链接",
+    "可下载",
+    "生成报告",
+    "导出报告",
+    "报告文件",
+    "碳核算报告",
+)
+
+
 class AIRuntimeOrchestrator:
     def __init__(
         self,
@@ -58,6 +142,109 @@ class AIRuntimeOrchestrator:
 
     def supported_modes(self) -> list[str]:
         return list_mode_names()
+
+    @staticmethod
+    def _looks_like_report_file_intent(text: str) -> bool:
+        normalized = text.lower()
+        if any(keyword in normalized for keyword in REPORT_FILE_INTENT_KEYWORDS):
+            return True
+        return any(word in normalized for word in REPORT_FILE_WORDS) and any(
+            word in normalized for word in REPORT_FILE_ACTION_WORDS
+        )
+
+    @staticmethod
+    def _looks_like_assistant_report_offer(text: str) -> bool:
+        normalized = text.lower()
+        compact = normalized.replace(" ", "")
+        has_offer = any(keyword in normalized for keyword in ASSISTANT_REPORT_OFFER_KEYWORDS) or any(
+            keyword.replace(" ", "") in compact for keyword in ASSISTANT_REPORT_OFFER_KEYWORDS
+        )
+        has_artifact = any(keyword in normalized for keyword in ASSISTANT_REPORT_ARTIFACT_KEYWORDS) or any(
+            keyword.replace(" ", "") in compact for keyword in ASSISTANT_REPORT_ARTIFACT_KEYWORDS
+        )
+        return has_offer and has_artifact
+
+    @staticmethod
+    def _build_tool_arguments(request: ChatRequest, tool_name: str, *, question_override: str | None = None) -> dict:
+        requested_top_k = int(request.payload.get("top_k", 5) or 5)
+        # Carbon factor rows are compact and often span multiple activity
+        # types. Keep RAG top_k unchanged, but expose enough factors for
+        # carbon accounting questions instead of truncating at AskPage's 5.
+        effective_top_k = 10 if tool_name == "carbon_factor_lookup" else requested_top_k
+        question = question_override or request.user_input
+        return {
+            "mode": request.mode,
+            "question": question,
+            "user_input": question,
+            "top_k": effective_top_k,
+            "knowledge_scope": request.payload.get("knowledge_scope_effective", "mixed"),
+            "allowed_knowledge_item_ids": request.payload.get("attached_knowledge_item_ids", []),
+            "kb_id": request.payload.get("kb_id"),
+            "rag_mode": request.payload.get("rag_mode", "hybrid_rerank"),
+            "payload": request.payload,
+        }
+
+    def _append_post_response_report_generation(
+        self,
+        *,
+        request: ChatRequest,
+        answer: str,
+        tool_calls: list[ToolCall],
+        tool_results: list[ToolResult],
+    ) -> tuple[list[ToolCall], list[ToolResult]]:
+        if request.mode != "ask":
+            return tool_calls, tool_results
+        if any(call.name == "report_file_generate" for call in tool_calls):
+            return tool_calls, tool_results
+        if not request.payload.get("owner_user_id") or not request.payload.get("session_id"):
+            return tool_calls, tool_results
+        if not self._looks_like_assistant_report_offer(answer):
+            return tool_calls, tool_results
+
+        synthetic_question = (
+            "生成 DOCX 报告文件，并在本轮回答下方提供下载链接。\n"
+            f"用户原始请求：{request.user_input}\n\n"
+            f"AI 已经建议生成的内容：{answer[:1200]}"
+        )
+        call = ToolCall(
+            name="report_file_generate",
+            arguments=self._build_tool_arguments(
+                request,
+                "report_file_generate",
+                question_override=synthetic_question,
+            ),
+        )
+        try:
+            result = self.registry.invoke(
+                call.name,
+                arguments=call.arguments,
+                context={
+                    "mode": request.mode,
+                    "trace_id": request.trace_id,
+                    "payload_keys": sorted(request.payload.keys()),
+                    "trigger_source": "assistant_report_offer",
+                },
+                trace_id=request.trace_id,
+            )
+        except Exception as exc:  # pragma: no cover - defensive tool boundary
+            result = ToolResult(
+                name="report_file_generate",
+                status="error",
+                output={
+                    "skill": {
+                        "name": "report-file-generation",
+                        "triggered": True,
+                    },
+                    "intent_detected": True,
+                    "report_generated": False,
+                    "error_stage": "post_response_tool",
+                    "error_message": str(exc),
+                    "files": [],
+                    "warnings": ["AI 已识别报告生成意图，但本轮文件生成工具调用失败。"],
+                },
+                metadata={"trace_id": request.trace_id, "trigger_source": "assistant_report_offer"},
+            )
+        return [*tool_calls, call], [*tool_results, result]
 
     @staticmethod
     def _resolve_ask_tool_sequence(request: ChatRequest) -> tuple[str, ...]:
@@ -98,43 +285,7 @@ class AIRuntimeOrchestrator:
             return any(keyword in question for keyword in keywords)
 
         def should_generate_report_file() -> bool:
-            question = request.user_input.lower()
-            keywords = (
-                "生成报告",
-                "导出报告",
-                "下载报告",
-                "创建报告",
-                "新建报告",
-                "报告文件",
-                "可下载报告",
-                "生成文件",
-                "导出文件",
-                "创建文件",
-                "新建文件",
-                "保存为",
-                "整理成报告",
-                "写成报告",
-                "做成报告",
-                "整理成文件",
-                "写成文件",
-                "做成文件",
-                "下载链接",
-                "文件链接",
-                "可下载",
-                "word文档",
-                "word 文件",
-                "docx 文件",
-                "report file",
-                "create report",
-                "export report",
-                "download report",
-                "download link",
-            )
-            if any(keyword in question for keyword in keywords):
-                return True
-            file_words = ("word", "docx", "pdf", "报告文件", "文件")
-            action_words = ("生成", "创建", "新建", "导出", "下载", "保存", "整理", "做成", "写成", "给我", "来一份", "create", "export", "download", "save")
-            return any(word in question for word in file_words) and any(word in question for word in action_words)
+            return AIRuntimeOrchestrator._looks_like_report_file_intent(request.user_input)
 
         if get_settings().rag_langchain_enabled:
             tool_sequence = ["rag_pro_search"]
@@ -150,7 +301,7 @@ class AIRuntimeOrchestrator:
             if should_generate_report_file():
                 tool_sequence.append("report_file_generate")
             return tuple(tool_sequence)
-        effective_scope = request.payload.get("knowledge_scope_effective", "public")
+        effective_scope = request.payload.get("knowledge_scope_effective", "mixed")
         tool_sequence: list[str]
         if effective_scope == "private_sample":
             tool_sequence = ["enterprise_retrieve"]
@@ -183,28 +334,10 @@ class AIRuntimeOrchestrator:
             tool_sequence,
         )
 
-        def build_tool_arguments(tool_name: str) -> dict:
-            requested_top_k = int(request.payload.get("top_k", 5) or 5)
-            # Carbon factor rows are compact and often span multiple activity
-            # types. Keep RAG top_k unchanged, but expose enough factors for
-            # carbon accounting questions instead of truncating at AskPage's 5.
-            effective_top_k = 10 if tool_name == "carbon_factor_lookup" else requested_top_k
-            return {
-                "mode": request.mode,
-                "question": request.user_input,
-                "user_input": request.user_input,
-                "top_k": effective_top_k,
-                "knowledge_scope": request.payload.get("knowledge_scope_effective", "public"),
-                "allowed_knowledge_item_ids": request.payload.get("attached_knowledge_item_ids", []),
-                "kb_id": request.payload.get("kb_id"),
-                "rag_mode": request.payload.get("rag_mode", "hybrid_rerank"),
-                "payload": request.payload,
-            }
-
         tool_calls = [
             ToolCall(
                 name=tool_name,
-                arguments=build_tool_arguments(tool_name),
+                arguments=self._build_tool_arguments(request, tool_name),
             )
             for tool_name in tool_sequence
         ]
@@ -288,6 +421,12 @@ class AIRuntimeOrchestrator:
                 system_prompt=prepared.context_bundle["system_prompt"],
                 user_input=request.user_input,
             )
+            tool_calls, tool_results = self._append_post_response_report_generation(
+                request=request,
+                answer=provider_result.content,
+                tool_calls=prepared.tool_calls,
+                tool_results=prepared.tool_results,
+            )
             return format_runtime_result(
                 request=request,
                 provider_descriptor=prepared.provider_descriptor,
@@ -295,8 +434,8 @@ class AIRuntimeOrchestrator:
                 guard_snapshot=prepared.guard_snapshot,
                 context_bundle=prepared.context_bundle,
                 provider_result=provider_result,
-                tool_calls=prepared.tool_calls,
-                tool_results=prepared.tool_results,
+                tool_calls=tool_calls,
+                tool_results=tool_results,
                 status="ok",
                 answer=provider_result.content,
             )
@@ -371,6 +510,12 @@ class AIRuntimeOrchestrator:
                             content=final_answer,
                             metadata=provider_metadata,
                         )
+                        tool_calls, tool_results = self._append_post_response_report_generation(
+                            request=request,
+                            answer=final_answer,
+                            tool_calls=prepared.tool_calls,
+                            tool_results=prepared.tool_results,
+                        )
                         state.runtime_result = format_runtime_result(
                             request=request,
                             provider_descriptor=prepared.provider_descriptor,
@@ -378,8 +523,8 @@ class AIRuntimeOrchestrator:
                             guard_snapshot=prepared.guard_snapshot,
                             context_bundle=prepared.context_bundle,
                             provider_result=provider_result,
-                            tool_calls=prepared.tool_calls,
-                            tool_results=prepared.tool_results,
+                            tool_calls=tool_calls,
+                            tool_results=tool_results,
                             status="ok",
                             answer=final_answer,
                         )

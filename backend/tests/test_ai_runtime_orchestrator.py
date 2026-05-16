@@ -10,6 +10,9 @@ from app.ai_runtime.providers.base import (
 from app.ai_runtime.providers.chat_openai_compatible import OpenAICompatibleChatProvider
 from app.ai_runtime.runtime.orchestrator import AIRuntimeOrchestrator
 from app.ai_runtime.schemas.chat import ChatRequest
+from app.ai_runtime.schemas.tool import ToolResult
+from app.ai_runtime.tools.base import BaseTool, ToolDefinition
+from app.ai_runtime.tools.registry import ToolRegistry
 
 
 class FakeChatProvider(BaseChatProvider):
@@ -30,6 +33,22 @@ class FakeChatProvider(BaseChatProvider):
         yield ChatStreamEvent(kind="status", data={"status": "thinking"})
         yield ChatStreamEvent(kind="answer_delta", data={"delta": f"回答: {user_input}"})
         yield ChatStreamEvent(kind="done", data={"content": f"回答: {user_input}", "metadata": {"transport": "test"}})
+
+
+class FakeReportOfferChatProvider(FakeChatProvider):
+    def generate_response(self, *, system_prompt: str, user_input: str) -> ChatCompletionResult:
+        assert "CarbonRag" in system_prompt
+        del user_input
+        return ChatCompletionResult(
+            content=(
+                "下一步建议\n"
+                "如果你愿意，我下一条可以直接输出：\n"
+                "1. 正式版碳核算报告正文\n"
+                "2. 仅能源 5 类简版报告\n"
+                "3. PPT 汇报版摘要\n"
+                "你回复一个编号即可。"
+            )
+        )
 
 
 class FailingChatProvider(BaseChatProvider):
@@ -76,6 +95,55 @@ class FakeStreamingResponse:
     def iter_lines(self):
         for line in self._lines:
             yield line
+
+
+class FakeTool(BaseTool):
+    def __init__(self, name: str, output: dict | None = None, status: str = "success") -> None:
+        self._name = name
+        self._output = output or {}
+        self._status = status
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return ToolDefinition(name=self._name, description=f"Fake {self._name}")
+
+    def invoke(self, *, arguments: dict, context: dict, trace_id: str) -> ToolResult:
+        del arguments, context
+        return ToolResult(
+            name=self._name,
+            status=self._status,
+            output=self._output,
+            metadata={"trace_id": trace_id},
+        )
+
+
+def build_fake_report_registry() -> ToolRegistry:
+    registry = ToolRegistry()
+    registry.register(FakeTool("rag_pro_search", {"hits": [], "retrieval_trace": {"tool": "rag_pro_search"}}))
+    registry.register(
+        FakeTool(
+            "report_file_generate",
+            {
+                "skill": {"name": "report-file-generation", "triggered": True},
+                "intent_detected": True,
+                "report_id": "report-demo",
+                "report_type": "carbon_summary",
+                "title": "对话碳核算报告（即时草稿）",
+                "formats": ["docx"],
+                "files": [
+                    {
+                        "file_id": "rfile-demo",
+                        "filename": "对话碳核算报告.docx",
+                        "format": "docx",
+                        "download_url": "/api/v1/report-files/rfile-demo/download",
+                    }
+                ],
+                "download_urls": ["/api/v1/report-files/rfile-demo/download"],
+                "warnings": [],
+            },
+        )
+    )
+    return registry
 
 
 def test_orchestrator_returns_runtime_result_for_ok_request() -> None:
@@ -182,6 +250,33 @@ def test_orchestrator_adds_report_file_generation_tool_for_download_link_intent(
     tool_sequence = AIRuntimeOrchestrator._resolve_ask_tool_sequence(request)
 
     assert tool_sequence[-1] == "report_file_generate"
+
+
+def test_orchestrator_generates_report_when_assistant_offers_report_file() -> None:
+    orchestrator = AIRuntimeOrchestrator(
+        registry=build_fake_report_registry(),
+        chat_provider=FakeReportOfferChatProvider(),
+        embedding_provider=FakeEmbeddingProvider(),
+    )
+    request = ChatRequest(
+        mode="ask",
+        user_input="请分析这份上传文件，并给出下一步建议。",
+        payload={
+            "owner_user_id": "user-demo",
+            "session_id": "session-demo",
+            "knowledge_scope_requested": "mixed",
+            "knowledge_scope_effective": "mixed",
+            "top_k": 5,
+        },
+    )
+
+    result = orchestrator.run(request)
+
+    assert [call.name for call in result.tool_calls] == ["rag_pro_search", "report_file_generate"]
+    assert result.context_summary["generated_report_count"] == 1
+    assert result.context_summary["generated_reports"][0]["files"][0]["download_url"].endswith("/download")
+    assert "已生成文件" in result.response.answer
+    assert "DOCX 下载" in result.response.answer
 
 
 def test_orchestrator_does_not_treat_plain_pdf_question_as_file_export_intent() -> None:
