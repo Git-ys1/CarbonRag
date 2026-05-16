@@ -15,10 +15,19 @@ import type {
     SshTerminalStatus,
 } from "../types/management";
 
-const DEVICE_ID_KEY = "carbonrag-management-device-id";
+const LEGACY_DEVICE_ID_KEY = "carbonrag-management-device-id";
+const DEVICE_ID_KEY_PREFIX = "carbonrag-management-device-id";
+const DEVICE_CONTEXT_KEY = "carbonrag-management-current-device-context";
 const DEVICE_DB_NAME = "carbonrag-management-device-keys";
 const DEVICE_DB_STORE = "keys";
-const DEVICE_KEY_RECORD = "p256-signing-keypair";
+const LEGACY_DEVICE_KEY_RECORD = "p256-signing-keypair";
+
+export type ManagementRoleScope = "admin" | "super_admin";
+
+export interface ManagementDeviceContext {
+    userId: string;
+    roleScope: ManagementRoleScope;
+}
 
 export interface ManagementDeviceIdentity {
     deviceId: string;
@@ -98,7 +107,8 @@ export async function runServerOpsCommand(commandId: string, reason?: string) {
 }
 
 export async function startSuperAdminRelay(userId: string) {
-    const identity = await getOrCreateManagementDeviceIdentity();
+    const context = { userId, roleScope: "super_admin" as const };
+    const identity = await getOrCreateManagementDeviceIdentity(context);
     const frame = await buildSignedManagementFrame({
         frameType: "SA_HELLO",
         userId,
@@ -106,11 +116,13 @@ export async function startSuperAdminRelay(userId: string) {
         requestedAction: "ENTER_SUPER_ADMIN_CONSOLE",
     });
     const response = await httpClient.post<ManagementAck>("/v1/management/super-admin/hello", frame);
+    setActiveManagementDeviceContext(context);
     return { ack: response.data, identity };
 }
 
 export async function startAdminRelay(userId: string) {
-    const identity = await getOrCreateManagementDeviceIdentity();
+    const context = { userId, roleScope: "admin" as const };
+    const identity = await getOrCreateManagementDeviceIdentity(context);
     const frame = await buildSignedManagementFrame({
         frameType: "AD_HELLO",
         userId,
@@ -118,6 +130,7 @@ export async function startAdminRelay(userId: string) {
         requestedAction: "ENTER_ADMIN_CONSOLE",
     });
     const response = await httpClient.post<ManagementAck>("/v1/management/admin/hello", frame);
+    setActiveManagementDeviceContext(context);
     return { ack: response.data, identity };
 }
 
@@ -128,13 +141,31 @@ export async function sendRelayHeartbeat(relaySessionId: string) {
     return response.data;
 }
 
-export async function getOrCreateManagementDeviceIdentity(): Promise<ManagementDeviceIdentity> {
-    const deviceId = getOrCreateDeviceId();
-    const keyPair = await getOrCreateDeviceKeyPair();
+export async function getOrCreateManagementDeviceIdentity(context?: ManagementDeviceContext): Promise<ManagementDeviceIdentity> {
+    const resolvedContext = resolveManagementDeviceContext(context);
+    if (resolvedContext) {
+        setActiveManagementDeviceContext(resolvedContext);
+    }
+    const namespace = resolvedContext ? managementDeviceNamespace(resolvedContext) : null;
+    const deviceId = getOrCreateDeviceId(namespace);
+    const keyPair = await getOrCreateDeviceKeyPair(namespace);
     const publicKeyJwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
     const publicKeyJson = JSON.stringify(normalizePublicJwk(publicKeyJwk));
     const fingerprintHash = await sha256Hex(publicKeyJson);
     return { deviceId, publicKeyJwk, publicKeyJson, fingerprintHash };
+}
+
+export async function resetManagementDeviceIdentity(context: ManagementDeviceContext): Promise<ManagementDeviceIdentity> {
+    const namespace = managementDeviceNamespace(context);
+    window.localStorage.removeItem(deviceIdStorageKey(namespace));
+    await deleteDeviceKeyPair(namespace).catch(() => undefined);
+    setActiveManagementDeviceContext(context);
+    return getOrCreateManagementDeviceIdentity(context);
+}
+
+export function isManagementDeviceOwnershipConflict(error: unknown) {
+    const message = extractApiDetail(error).toLowerCase();
+    return message.includes("already registered by another user") || message.includes("owned by another user");
 }
 
 export async function buildActionAckHeaders(
@@ -189,15 +220,17 @@ async function buildSignedManagementFrame({
 }
 
 async function signCanonicalPayload(payload: Record<string, unknown>) {
-    const keyPair = await getOrCreateDeviceKeyPair();
+    const context = resolveManagementDeviceContext();
+    const keyPair = await getOrCreateDeviceKeyPair(context ? managementDeviceNamespace(context) : null);
     const encoded = new TextEncoder().encode(stableStringify(payload));
     const signature = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, keyPair.privateKey, encoded);
     return base64Url(signature);
 }
 
-async function getOrCreateDeviceKeyPair(): Promise<CryptoKeyPair> {
+async function getOrCreateDeviceKeyPair(namespace: string | null): Promise<CryptoKeyPair> {
     const db = await openDeviceDb();
-    const existing = await readKeyPair(db);
+    const recordKey = deviceKeyRecord(namespace);
+    const existing = await readKeyPair(db, recordKey);
     if (existing) {
         return existing;
     }
@@ -206,17 +239,18 @@ async function getOrCreateDeviceKeyPair(): Promise<CryptoKeyPair> {
         false,
         ["sign", "verify"],
     );
-    await writeKeyPair(db, keyPair);
+    await writeKeyPair(db, recordKey, keyPair);
     return keyPair;
 }
 
-function getOrCreateDeviceId() {
-    const existing = window.localStorage.getItem(DEVICE_ID_KEY);
+function getOrCreateDeviceId(namespace: string | null) {
+    const storageKey = deviceIdStorageKey(namespace);
+    const existing = window.localStorage.getItem(storageKey);
     if (existing) {
         return existing;
     }
     const next = `device-${crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36)}`;
-    window.localStorage.setItem(DEVICE_ID_KEY, next);
+    window.localStorage.setItem(storageKey, next);
     return next;
 }
 
@@ -231,22 +265,80 @@ function openDeviceDb(): Promise<IDBDatabase> {
     });
 }
 
-function readKeyPair(db: IDBDatabase): Promise<CryptoKeyPair | null> {
+function readKeyPair(db: IDBDatabase, recordKey: string): Promise<CryptoKeyPair | null> {
     return new Promise((resolve, reject) => {
         const transaction = db.transaction(DEVICE_DB_STORE, "readonly");
-        const request = transaction.objectStore(DEVICE_DB_STORE).get(DEVICE_KEY_RECORD);
+        const request = transaction.objectStore(DEVICE_DB_STORE).get(recordKey);
         request.onsuccess = () => resolve((request.result as CryptoKeyPair | undefined) ?? null);
         request.onerror = () => reject(request.error);
     });
 }
 
-function writeKeyPair(db: IDBDatabase, keyPair: CryptoKeyPair): Promise<void> {
+function writeKeyPair(db: IDBDatabase, recordKey: string, keyPair: CryptoKeyPair): Promise<void> {
     return new Promise((resolve, reject) => {
         const transaction = db.transaction(DEVICE_DB_STORE, "readwrite");
-        transaction.objectStore(DEVICE_DB_STORE).put(keyPair, DEVICE_KEY_RECORD);
+        transaction.objectStore(DEVICE_DB_STORE).put(keyPair, recordKey);
         transaction.oncomplete = () => resolve();
         transaction.onerror = () => reject(transaction.error);
     });
+}
+
+function deleteDeviceKeyPair(namespace: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DEVICE_DB_NAME, 1);
+        request.onupgradeneeded = () => {
+            request.result.createObjectStore(DEVICE_DB_STORE);
+        };
+        request.onsuccess = () => {
+            const db = request.result;
+            const transaction = db.transaction(DEVICE_DB_STORE, "readwrite");
+            transaction.objectStore(DEVICE_DB_STORE).delete(deviceKeyRecord(namespace));
+            transaction.oncomplete = () => {
+                db.close();
+                resolve();
+            };
+            transaction.onerror = () => {
+                db.close();
+                reject(transaction.error);
+            };
+        };
+        request.onerror = () => reject(request.error);
+    });
+}
+
+function resolveManagementDeviceContext(context?: ManagementDeviceContext): ManagementDeviceContext | null {
+    if (context?.userId && context.roleScope) {
+        return context;
+    }
+    const stored = window.localStorage.getItem(DEVICE_CONTEXT_KEY);
+    if (!stored) {
+        return null;
+    }
+    try {
+        const parsed = JSON.parse(stored) as Partial<ManagementDeviceContext>;
+        if (parsed.userId && (parsed.roleScope === "admin" || parsed.roleScope === "super_admin")) {
+            return { userId: parsed.userId, roleScope: parsed.roleScope };
+        }
+    } catch {
+        window.localStorage.removeItem(DEVICE_CONTEXT_KEY);
+    }
+    return null;
+}
+
+function setActiveManagementDeviceContext(context: ManagementDeviceContext) {
+    window.localStorage.setItem(DEVICE_CONTEXT_KEY, JSON.stringify(context));
+}
+
+function managementDeviceNamespace(context: ManagementDeviceContext) {
+    return `${context.roleScope}:${context.userId}`;
+}
+
+function deviceIdStorageKey(namespace: string | null) {
+    return namespace ? `${DEVICE_ID_KEY_PREFIX}:${namespace}` : LEGACY_DEVICE_ID_KEY;
+}
+
+function deviceKeyRecord(namespace: string | null) {
+    return namespace ? `${LEGACY_DEVICE_KEY_RECORD}:${namespace}` : LEGACY_DEVICE_KEY_RECORD;
 }
 
 function normalizePublicJwk(jwk: JsonWebKey): JsonWebKey {
@@ -293,6 +385,17 @@ function buildWebSocketUrl(path: string) {
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
     url.pathname = `${url.pathname.replace(/\/+$/u, "")}${path}`;
     return url.toString();
+}
+
+function extractApiDetail(error: unknown) {
+    if (error && typeof error === "object") {
+        const response = (error as { response?: { data?: { detail?: unknown; message?: unknown } } }).response;
+        const detail = response?.data?.detail ?? response?.data?.message;
+        if (typeof detail === "string") {
+            return detail;
+        }
+    }
+    return error instanceof Error ? error.message : "";
 }
 
 function stableStringify(value: unknown): string {

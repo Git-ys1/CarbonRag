@@ -19,9 +19,11 @@ import {
     getManagementOverview,
     getRelayStatus,
     getSshTerminalStatus,
+    isManagementDeviceOwnershipConflict,
     listServerOpsCommands,
     openSshTerminalSocket,
     rejectAdminAccessRequest,
+    resetManagementDeviceIdentity,
     runServerOpsCommand,
     sendRelayHeartbeat,
     startSuperAdminRelay,
@@ -60,7 +62,10 @@ export function SuperAdminPage() {
     const [terminalInput, setTerminalInput] = useState("");
 
     useEffect(() => {
-        void getOrCreateManagementDeviceIdentity()
+        if (!user) {
+            return;
+        }
+        void getOrCreateManagementDeviceIdentity({ userId: user.user_id, roleScope: "super_admin" })
             .then((identity) => setCurrentDevice(identity.deviceId))
             .catch((error) => {
                 feedback.error({
@@ -70,7 +75,7 @@ export function SuperAdminPage() {
                 });
             });
         void refreshAll();
-    }, []);
+    }, [user?.user_id]);
 
     useEffect(() => {
         const relayId = relay?.current?.relay_session_id;
@@ -125,16 +130,32 @@ export function SuperAdminPage() {
         }
         setActionLoadingId("enroll-device");
         try {
-            const identity = await getOrCreateManagementDeviceIdentity();
+            let identity = await getOrCreateManagementDeviceIdentity({ userId: user.user_id, roleScope: "super_admin" });
             setCurrentDevice(identity.deviceId);
-            await enrollManagementDevice({
-                device_id: identity.deviceId,
-                role_scope: "super_admin",
-                device_name: navigator.userAgent.slice(0, 120) || "当前浏览器",
-                device_public_key: identity.publicKeyJson,
-                fingerprint_hash: identity.fingerprintHash,
-                mac_hint: null,
-            });
+            try {
+                await enrollManagementDevice({
+                    device_id: identity.deviceId,
+                    role_scope: "super_admin",
+                    device_name: navigator.userAgent.slice(0, 120) || "当前浏览器",
+                    device_public_key: identity.publicKeyJson,
+                    fingerprint_hash: identity.fingerprintHash,
+                    mac_hint: null,
+                });
+            } catch (enrollError) {
+                if (!isManagementDeviceOwnershipConflict(enrollError)) {
+                    throw enrollError;
+                }
+                identity = await resetManagementDeviceIdentity({ userId: user.user_id, roleScope: "super_admin" });
+                setCurrentDevice(identity.deviceId);
+                await enrollManagementDevice({
+                    device_id: identity.deviceId,
+                    role_scope: "super_admin",
+                    device_name: navigator.userAgent.slice(0, 120) || "当前浏览器",
+                    device_public_key: identity.publicKeyJson,
+                    fingerprint_hash: identity.fingerprintHash,
+                    mac_hint: null,
+                });
+            }
             feedback.success({ title: "当前设备已登记", history: true, source: "SuperAdminPage" });
             await refreshAll();
         } catch (error) {
@@ -154,7 +175,25 @@ export function SuperAdminPage() {
         }
         setActionLoadingId("start-relay");
         try {
-            const { ack, identity } = await startSuperAdminRelay(user.user_id);
+            let result;
+            try {
+                result = await startSuperAdminRelay(user.user_id);
+            } catch (startError) {
+                if (!isManagementDeviceOwnershipConflict(startError)) {
+                    throw startError;
+                }
+                const identity = await resetManagementDeviceIdentity({ userId: user.user_id, roleScope: "super_admin" });
+                await enrollManagementDevice({
+                    device_id: identity.deviceId,
+                    role_scope: "super_admin",
+                    device_name: navigator.userAgent.slice(0, 120) || "当前浏览器",
+                    device_public_key: identity.publicKeyJson,
+                    fingerprint_hash: identity.fingerprintHash,
+                    mac_hint: null,
+                });
+                result = await startSuperAdminRelay(user.user_id);
+            }
+            const { ack, identity } = result;
             setCurrentDevice(identity.deviceId);
             feedback.success({ title: "SA Relay 已建立", description: `ACK: ${shortId(ack.request_id)}`, source: "SuperAdminPage" });
             await refreshAll();

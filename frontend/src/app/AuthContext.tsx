@@ -7,6 +7,8 @@ import {
     enrollManagementDevice,
     getOrCreateManagementDeviceIdentity,
     getRelayStatus,
+    isManagementDeviceOwnershipConflict,
+    resetManagementDeviceIdentity,
     sendRelayHeartbeat,
     startAdminRelay,
     startSuperAdminRelay,
@@ -84,19 +86,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
                     return;
                 }
 
-                const identity = await getOrCreateManagementDeviceIdentity();
                 if (user.role === "super_admin") {
-                    let started = await startSuperAdminRelay(user.user_id).catch(async () => {
-                        await enrollManagementDevice({
-                            device_id: identity.deviceId,
-                            role_scope: "super_admin",
-                            device_name: getBrowserDeviceName(),
-                            mac_hint: null,
-                            device_public_key: identity.publicKeyJson,
-                            fingerprint_hash: identity.fingerprintHash,
-                        });
-                        return startSuperAdminRelay(user.user_id);
-                    });
+                    const started = await ensureSuperAdminRelay(user);
                     if (!cancelled) {
                         startHeartbeat(started.ack.request_id);
                         dispatchReady();
@@ -179,7 +170,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
 }
 
 async function ensureAdminAccessRequest(user: AuthUser) {
-    const identity = await getOrCreateManagementDeviceIdentity();
+    const identity = await getOrCreateManagementDeviceIdentity({ userId: user.user_id, roleScope: "admin" });
     const requestKey = `carbonrag-admin-access-requested:${user.user_id}:${identity.deviceId}`;
     await enrollManagementDevice({
         device_id: identity.deviceId,
@@ -200,6 +191,39 @@ async function ensureAdminAccessRequest(user: AuthUser) {
         fingerprint_hash: identity.fingerprintHash,
     });
     window.localStorage.setItem(requestKey, new Date().toISOString());
+}
+
+async function ensureSuperAdminRelay(user: AuthUser) {
+    let identity = await getOrCreateManagementDeviceIdentity({ userId: user.user_id, roleScope: "super_admin" });
+    try {
+        return await startSuperAdminRelay(user.user_id);
+    } catch (startError) {
+        if (isManagementDeviceOwnershipConflict(startError)) {
+            identity = await resetManagementDeviceIdentity({ userId: user.user_id, roleScope: "super_admin" });
+        }
+        await enrollManagementDevice({
+            device_id: identity.deviceId,
+            role_scope: "super_admin",
+            device_name: getBrowserDeviceName(),
+            mac_hint: null,
+            device_public_key: identity.publicKeyJson,
+            fingerprint_hash: identity.fingerprintHash,
+        }).catch(async (enrollError) => {
+            if (!isManagementDeviceOwnershipConflict(enrollError)) {
+                throw enrollError;
+            }
+            identity = await resetManagementDeviceIdentity({ userId: user.user_id, roleScope: "super_admin" });
+            await enrollManagementDevice({
+                device_id: identity.deviceId,
+                role_scope: "super_admin",
+                device_name: getBrowserDeviceName(),
+                mac_hint: null,
+                device_public_key: identity.publicKeyJson,
+                fingerprint_hash: identity.fingerprintHash,
+            });
+        });
+        return startSuperAdminRelay(user.user_id);
+    }
 }
 
 function getBrowserDeviceName() {
