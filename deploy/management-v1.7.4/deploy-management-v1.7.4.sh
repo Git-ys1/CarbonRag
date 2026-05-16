@@ -8,7 +8,12 @@ SERVICE_NAME="${SERVICE_NAME:-carbonrag}"
 echo "[V1.7.4] backing up ${APP_DIR} to ${BACKUP_DIR}"
 mkdir -p "${BACKUP_DIR}"
 if [ -d "${APP_DIR}" ]; then
-  rsync -a --exclude ".git" --exclude "node_modules" --exclude "backend/.conda" "${APP_DIR}/" "${BACKUP_DIR}/app/"
+  rsync -a \
+    --exclude ".git" \
+    --exclude ".venv" \
+    --exclude "node_modules" \
+    --exclude "backend/.conda" \
+    "${APP_DIR}/" "${BACKUP_DIR}/app/"
 fi
 
 cd "${APP_DIR}"
@@ -18,7 +23,9 @@ git checkout main
 git pull --ff-only origin main
 
 echo "[V1.7.4] installing backend dependencies"
-if [ -x "backend/.conda/bin/python" ]; then
+if [ -x ".venv/bin/python" ]; then
+  .venv/bin/python -m pip install -r backend/requirements.txt
+elif [ -x "backend/.conda/bin/python" ]; then
   backend/.conda/bin/python -m pip install -r backend/requirements.txt
 elif [ -x "backend/.conda/Scripts/python.exe" ]; then
   backend/.conda/Scripts/python.exe -m pip install -r backend/requirements.txt

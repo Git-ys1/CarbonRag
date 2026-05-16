@@ -27,6 +27,14 @@ export SERVICE_NAME=carbonrag
 bash deploy/management-v1.7.4/deploy-management-v1.7.4.sh
 ```
 
+当前 CarbonRag VPS 的服务目录是 `/srv/carbonrag/app`，服务名是 `carbonrag`，使用：
+
+```bash
+APP_DIR=/srv/carbonrag/app SERVICE_NAME=carbonrag bash deploy/management-v1.7.4/deploy-management-v1.7.4.sh
+```
+
+脚本会优先复用仓库根目录 `.venv/bin/python`，其次再尝试 `backend/.conda`，避免服务器部署时误跑系统 Python。备份会排除 `.git`、`.venv`、`node_modules` 和 `backend/.conda`，避免把虚拟环境和前端依赖包复制进备份目录。
+
 ## 验收
 
 - `/healthz` 可访问。
