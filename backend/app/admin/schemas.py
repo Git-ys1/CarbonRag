@@ -31,7 +31,7 @@ class CreateAdminUserRequest(BaseModel):
     username: str = Field(min_length=3, max_length=32)
     display_name: str | None = Field(default=None, max_length=64)
     password: str = Field(min_length=6, max_length=128)
-    role: Literal["user", "admin"] = "user"
+    role: Literal["user", "admin", "super_admin"] = "user"
 
 
 class UpdateAdminUserRequest(BaseModel):

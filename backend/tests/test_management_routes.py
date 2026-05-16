@@ -87,6 +87,38 @@ def test_super_admin_device_hello_and_replay_rejected(monkeypatch, tmp_path) -> 
     assert relay_response.json()["super_admin_online"] is True
 
 
+def test_super_admin_can_enroll_two_active_devices_temporarily(monkeypatch, tmp_path) -> None:
+    db_path = tmp_path / "runtime.sqlite3"
+    auth_service = patch_test_auth_service(monkeypatch, db_path=db_path)
+    auth_service.ensure_seed_admin_and_backfill()
+    _patch_management(monkeypatch, db_path=db_path)
+
+    client.cookies.clear()
+    _login_seed_super_admin()
+    first_device = create_management_test_device("sa-device-a")
+    second_device = create_management_test_device("sa-device-b")
+    third_device = create_management_test_device("sa-device-c")
+
+    first = enroll_management_device(client, device=first_device, role_scope="super_admin", device_name="测试超级管理员设备 A")
+    second = enroll_management_device(client, device=second_device, role_scope="super_admin", device_name="测试超级管理员设备 B")
+    assert first["approved_at"]
+    assert second["approved_at"]
+
+    rejected = client.post(
+        "/api/v1/management/device/enroll",
+        json={
+            "device_id": third_device.device_id,
+            "role_scope": "super_admin",
+            "device_name": "测试超级管理员设备 C",
+            "mac_hint": "cc:dd",
+            "device_public_key": third_device.public_jwk,
+            "fingerprint_hash": third_device.fingerprint_hash,
+        },
+    )
+    assert rejected.status_code == 409
+    assert "At most 2 active super_admin devices" in rejected.json()["detail"]
+
+
 def test_super_admin_can_read_web_ssh_terminal_status_after_relay(monkeypatch, tmp_path) -> None:
     db_path = tmp_path / "runtime.sqlite3"
     auth_service = patch_test_auth_service(monkeypatch, db_path=db_path)

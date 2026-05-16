@@ -829,8 +829,8 @@ export function AdminPlaceholderPage() {
     }
 
     async function handleCreateUser(values: CreateAdminUserRequest) {
-        if (values.role === "admin" && currentUser?.role !== "super_admin") {
-            message.warning("admin 账号只能由 super admin 创建。");
+        if ((values.role === "admin" || values.role === "super_admin") && currentUser?.role !== "super_admin") {
+            message.warning("admin / super admin 账号只能由 super admin 创建。");
             return;
         }
         setCreatingUser(true);
@@ -2272,7 +2272,7 @@ export function AdminPlaceholderPage() {
                                         setCreateUserModalOpen(true);
                                     }}
                                 >
-                                    {currentUser?.role === "super_admin" ? "创建用户 / admin" : "创建用户"}
+                                    {currentUser?.role === "super_admin" ? "创建用户 / admin / super admin" : "创建用户"}
                                 </Button>
                                 <Input.Search
                                     allowClear
@@ -2378,7 +2378,7 @@ export function AdminPlaceholderPage() {
                     showIcon
                     type="info"
                     style={{ marginBottom: 16 }}
-                    message="普通 admin 只能创建 user；admin 账号必须由 super admin 创建。"
+                    message="普通 admin 只能创建 user；admin 与临时第二个 super admin 必须由 super admin 创建。"
                 />
                 <Form<CreateAdminUserRequest>
                     form={createUserForm}
@@ -2415,7 +2415,10 @@ export function AdminPlaceholderPage() {
                             options={[
                                 { label: "user（普通用户）", value: "user" },
                                 ...(currentUser?.role === "super_admin"
-                                    ? [{ label: "admin（管理员）", value: "admin" }]
+                                    ? [
+                                          { label: "admin（管理员）", value: "admin" },
+                                          { label: "super admin（临时第二超级管理员）", value: "super_admin" },
+                                      ]
                                     : []),
                             ]}
                         />

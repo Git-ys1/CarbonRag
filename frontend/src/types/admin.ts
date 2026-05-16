@@ -18,7 +18,7 @@ export interface CreateAdminUserRequest {
     username: string;
     display_name?: string | null;
     password: string;
-    role: "user" | "admin";
+    role: "user" | "admin" | "super_admin";
 }
 
 export interface UpdateAdminUserRequest {

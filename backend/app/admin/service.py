@@ -124,7 +124,7 @@ class AdminService:
         return items
 
     def create_user(self, *, payload: CreateAdminUserRequest, actor_role: str) -> AdminUserSummary:
-        if payload.role == "admin" and actor_role != "super_admin":
+        if payload.role in {"admin", "super_admin"} and actor_role != "super_admin":
             raise PermissionError("Only super_admin can create admin accounts.")
         user = self.auth_service.register(
             RegisterRequest(
@@ -135,6 +135,8 @@ class AdminService:
         )
         if payload.role == "admin":
             user = self.auth_service.update_user(user_id=user.user_id, role="admin", is_active=True)
+        if payload.role == "super_admin":
+            user = self.auth_service.promote_temporary_super_admin(user.user_id)
         return AdminUserSummary(
             user_id=user.user_id,
             username=user.username,

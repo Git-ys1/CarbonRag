@@ -220,27 +220,101 @@ class AuthService:
                     ("super_admin", updated_at, user_id),
                 )
 
+    def promote_temporary_super_admin(self, user_id: str, *, max_active_super_admins: int = 2) -> AuthenticatedUser:
+        current_row = self._fetch_user_by_id(user_id)
+        if current_row is None:
+            raise KeyError(user_id)
+        current_user = self._row_to_user(current_row)
+        if current_user.role == "super_admin":
+            return current_user
+
+        with self._connect() as connection:
+            if self.backend_kind == "postgresql":
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT COUNT(*) FROM users WHERE role = %s AND is_active = TRUE", ("super_admin",))
+                    active_count = int(cursor.fetchone()[0])
+            else:
+                active_count = int(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM users WHERE role = ? AND is_active = 1",
+                        ("super_admin",),
+                    ).fetchone()[0]
+                )
+        if active_count >= max_active_super_admins:
+            raise ProtectedAccountDeletionError(f"At most {max_active_super_admins} active super_admin accounts are allowed.")
+
+        updated_at = self._utcnow().isoformat()
+        with self._connect() as connection:
+            if self.backend_kind == "postgresql":
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "UPDATE users SET role = %s, is_active = TRUE, updated_at = %s WHERE user_id = %s",
+                        ("super_admin", updated_at, user_id),
+                    )
+            else:
+                connection.execute(
+                    "UPDATE users SET role = ?, is_active = 1, updated_at = ? WHERE user_id = ?",
+                    ("super_admin", updated_at, user_id),
+                )
+        refreshed = self._fetch_user_by_id(user_id)
+        if refreshed is None:
+            raise RuntimeError("Temporary super_admin could not be reloaded.")
+        return self._row_to_user(refreshed)
+
     def _enforce_single_super_admin(self, seed_user_id: str) -> None:
+        """Keep a small temporary super_admin test window.
+
+        V1.7.9 allows up to two active super_admin accounts so two machines can
+        test the management relay. The bootstrap seed account is always kept;
+        any third-or-later super_admin is downgraded back to admin.
+        """
+
         updated_at = self._utcnow().isoformat()
         with self._connect() as connection:
             if self.backend_kind == "postgresql":
                 with connection.cursor() as cursor:
                     cursor.execute(
                         """
+                        SELECT user_id
+                        FROM users
+                        WHERE role = %s AND is_active = TRUE
+                        ORDER BY CASE WHEN user_id = %s THEN 0 ELSE 1 END, created_at ASC
+                        """,
+                        ("super_admin", seed_user_id),
+                    )
+                    super_admin_ids = [str(row[0]) for row in cursor.fetchall()]
+                    demote_ids = super_admin_ids[2:]
+                    if not demote_ids:
+                        return
+                    cursor.execute(
+                        """
                         UPDATE users
                         SET role = %s, updated_at = %s
-                        WHERE role = %s AND user_id <> %s
+                        WHERE user_id = ANY(%s)
                         """,
-                        ("admin", updated_at, "super_admin", seed_user_id),
+                        ("admin", updated_at, demote_ids),
                     )
             else:
-                connection.execute(
+                rows = connection.execute(
                     """
+                    SELECT user_id
+                    FROM users
+                    WHERE role = ? AND is_active = 1
+                    ORDER BY CASE WHEN user_id = ? THEN 0 ELSE 1 END, created_at ASC
+                    """,
+                    ("super_admin", seed_user_id),
+                ).fetchall()
+                super_admin_ids = [str(row["user_id"] if hasattr(row, "keys") else row[0]) for row in rows]
+                demote_ids = super_admin_ids[2:]
+                if not demote_ids:
+                    return
+                connection.execute(
+                    f"""
                     UPDATE users
                     SET role = ?, updated_at = ?
-                    WHERE role = ? AND user_id <> ?
+                    WHERE user_id IN ({",".join("?" for _ in demote_ids)})
                     """,
-                    ("admin", updated_at, "super_admin", seed_user_id),
+                    ("admin", updated_at, *demote_ids),
                 )
 
     def _create_seed_admin(self) -> None:

@@ -29,6 +29,8 @@ from app.management.schemas import (
 from app.management.storage import ManagementStore
 
 MAX_ADMINS_PER_DEVICE = 5
+MAX_ACTIVE_SUPER_ADMINS = 2
+MAX_ACTIVE_SUPER_ADMIN_DEVICES = 2
 ACK_TTL_SECONDS = 300
 RELAY_TTL_SECONDS = 900
 
@@ -113,8 +115,11 @@ class ManagementService:
 
     def enforce_single_super_admin(self) -> None:
         super_admins = self.store.list_active_super_admins()
-        if len(super_admins) > 1:
-            raise RuntimeError("Multiple active super_admin users exist. Run auth seed repair before enabling management.")
+        if len(super_admins) > MAX_ACTIVE_SUPER_ADMINS:
+            raise RuntimeError(
+                f"More than {MAX_ACTIVE_SUPER_ADMINS} active super_admin users exist. "
+                "Run auth seed repair before enabling management."
+            )
 
     def has_admin_console_access(self, user: AuthenticatedUser) -> bool:
         if user.role == "super_admin":
@@ -182,8 +187,11 @@ class ManagementService:
             raise HTTPException(status_code=409, detail="Device id is already registered by another user.")
         if payload.role_scope == "super_admin":
             active_super_devices = self.store.count_active_super_admin_devices()
-            if active_super_devices > 0 and not (existing and bool(existing.get("is_active"))):
-                raise HTTPException(status_code=409, detail="Only one active super_admin device is allowed.")
+            if active_super_devices >= MAX_ACTIVE_SUPER_ADMIN_DEVICES and not (existing and bool(existing.get("is_active"))):
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"At most {MAX_ACTIVE_SUPER_ADMIN_DEVICES} active super_admin devices are allowed.",
+                )
         if payload.role_scope == "admin" and self.store.count_active_admin_devices_for_fingerprint(payload.fingerprint_hash) >= MAX_ADMINS_PER_DEVICE:
             raise HTTPException(status_code=409, detail="This device already has the maximum number of admin bindings.")
 

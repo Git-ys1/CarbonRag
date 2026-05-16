@@ -165,6 +165,46 @@ def test_admin_routes_manage_users_private_samples_and_refresh(monkeypatch, tmp_
     assert create_admin_response.status_code == 200
     assert create_admin_response.json()["role"] == "admin"
 
+    create_super_payload = {
+        "username": "created_super",
+        "password": TEST_PASSWORD,
+        "display_name": "created_super_display",
+        "role": "super_admin",
+    }
+    create_super_response = client.post(
+        "/api/v1/admin/users",
+        json=create_super_payload,
+        headers=action_headers(
+            management_device,
+            action_type="ADMIN_USER_CREATE",
+            target_type="user",
+            target_id="new",
+            payload=create_super_payload,
+        ),
+    )
+    assert create_super_response.status_code == 200
+    assert create_super_response.json()["role"] == "super_admin"
+
+    create_third_super_payload = {
+        "username": "created_third_super",
+        "password": TEST_PASSWORD,
+        "display_name": "created_third_super_display",
+        "role": "super_admin",
+    }
+    create_third_super_response = client.post(
+        "/api/v1/admin/users",
+        json=create_third_super_payload,
+        headers=action_headers(
+            management_device,
+            action_type="ADMIN_USER_CREATE",
+            target_type="user",
+            target_id="new",
+            payload=create_third_super_payload,
+        ),
+    )
+    assert create_third_super_response.status_code == 400
+    assert "At most 2 active super_admin accounts" in create_third_super_response.json()["detail"]
+
     update_response = client.patch(
         f"/api/v1/admin/users/{user_id}",
         json={"role": "admin", "is_active": True},

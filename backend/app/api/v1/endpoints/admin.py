@@ -83,6 +83,8 @@ def create_admin_user(
         return get_admin_service().create_user(payload=payload, actor_role=current_user.role)
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ProtectedAccountDeletionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

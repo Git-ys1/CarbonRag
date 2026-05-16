@@ -216,6 +216,32 @@ def test_seed_admin_me_repairs_demoted_runtime_row(monkeypatch, tmp_path) -> Non
     assert me_response.json()["user"]["role"] == "super_admin"
 
 
+def test_seed_admin_backfill_allows_two_active_super_admins_temporarily(monkeypatch, tmp_path) -> None:
+    session_service = build_session_service(tmp_path)
+    monkeypatch.setattr("app.api.v1.endpoints.sessions.get_session_service", lambda: session_service)
+    auth_service = patch_test_auth_service(monkeypatch, db_path=tmp_path / "carbonrag.sqlite3")
+    auth_service.ensure_seed_admin_and_backfill()
+
+    second_super = auth_service.register({"username": "second-super", "password": TEST_PASSWORD})
+    third_super = auth_service.register({"username": "third-super", "password": TEST_PASSWORD})
+    with auth_service._connect() as connection:  # noqa: SLF001 - test temporary bootstrap repair cap
+        connection.execute(
+            "UPDATE users SET role = ? WHERE user_id IN (?, ?)",
+            ("super_admin", second_super.user_id, third_super.user_id),
+        )
+
+    auth_service.ensure_seed_admin_and_backfill()
+    with auth_service._connect() as connection:  # noqa: SLF001 - assert persisted repair result
+        rows = connection.execute(
+            "SELECT username, role FROM users WHERE username IN (?, ?, ?) ORDER BY username",
+            ("admin", "second-super", "third-super"),
+        ).fetchall()
+    role_by_username = {row["username"]: row["role"] for row in rows}
+    assert role_by_username["admin"] == "super_admin"
+    assert role_by_username["second-super"] == "super_admin"
+    assert role_by_username["third-super"] == "admin"
+
+
 def test_register_admin_with_non_seed_password_is_rejected(monkeypatch, tmp_path) -> None:
     session_service = build_session_service(tmp_path)
     monkeypatch.setattr("app.api.v1.endpoints.sessions.get_session_service", lambda: session_service)
