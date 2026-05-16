@@ -49,6 +49,25 @@ def build_rag_service(tmp_path):
     )
 
 
+def test_create_document_recreates_missing_shadow_owner(tmp_path) -> None:
+    store = RagKnowledgeStore(sqlite_db_path=tmp_path / "carbonrag.sqlite3")
+    owner_user_id = "system-policy-crawler"
+    kb = store.create_kb(
+        owner_user_id=owner_user_id,
+        payload=KnowledgeBaseCreate(name="自动爬虫知识库", visibility="shared"),
+    )
+    store._execute("DELETE FROM users WHERE user_id = {p}", [owner_user_id])
+
+    doc = store.create_document(
+        owner_user_id=owner_user_id,
+        kb_id=kb.kb_id,
+        payload={"title": "政策文档", "text": "服务业扩能提质与节能环保服务。"},
+    )
+
+    assert doc.owner_user_id == owner_user_id
+    assert store._select("SELECT user_id FROM users WHERE user_id = {p}", [owner_user_id])
+
+
 def test_kb_document_status_and_test_qa(monkeypatch, tmp_path) -> None:
     service = build_rag_service(tmp_path)
     monkeypatch.setattr("app.rag.spine.get_settings", lambda: SimpleNamespace(rag_vector_backend="memory"))

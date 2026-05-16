@@ -1,6 +1,9 @@
+from types import SimpleNamespace
+
 from fastapi.testclient import TestClient
 
 from app.admin.service import AdminService
+from app.admin.schemas import PolicyCrawlerRunRequest
 from app.core.config import Settings
 from app.knowledge import KnowledgeService
 from app.knowledge.runner import KnowledgeTaskRunner
@@ -40,6 +43,40 @@ def patch_management_service(monkeypatch, *, db_path):
     monkeypatch.setattr("app.management.router.get_management_service", lambda: management_service)
     monkeypatch.setattr("app.management.service.get_management_service", lambda: management_service)
     return management_service
+
+
+def test_auto_rag_duplicate_without_rag_doc_is_reingested() -> None:
+    candidate = SimpleNamespace(
+        status="pending_review",
+        metadata={
+            "skip_reason": "duplicate_content_hash",
+            "candidate_quality_score": 75,
+            "extraction_quality_score": 100,
+            "markdown_size": 16_205,
+            "estimated_chunk_count": 6,
+        },
+    )
+    payload = PolicyCrawlerRunRequest(auto_rag_ingest_enabled=True, auto_rag_ingest_skip_duplicate=True)
+
+    assert AdminService._auto_rag_skip_reason(None, candidate, payload=payload) is None
+
+
+def test_auto_rag_duplicate_with_indexed_rag_doc_is_skipped() -> None:
+    candidate = SimpleNamespace(
+        status="pending_review",
+        metadata={
+            "skip_reason": "duplicate_content_hash",
+            "rag_doc_id": "rag-doc-policy",
+            "rag_indexed_chunk_count": 6,
+            "candidate_quality_score": 75,
+            "extraction_quality_score": 100,
+            "markdown_size": 16_205,
+            "estimated_chunk_count": 6,
+        },
+    )
+    payload = PolicyCrawlerRunRequest(auto_rag_ingest_enabled=True, auto_rag_ingest_skip_duplicate=True)
+
+    assert AdminService._auto_rag_skip_reason(None, candidate, payload=payload) == "already_indexed"
 
 
 def login_seed_admin_and_change_password() -> dict:

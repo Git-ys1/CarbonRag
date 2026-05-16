@@ -164,6 +164,7 @@ class RagKnowledgeStore:
         self._execute("DELETE FROM rag_knowledge_bases WHERE kb_id = {p} AND owner_user_id = {p}", [kb_id, owner_user_id])
 
     def create_document(self, *, owner_user_id: str, kb_id: str, payload: dict[str, Any]) -> RagDocument:
+        self._ensure_user_reference(owner_user_id=owner_user_id)
         kb = self.get_kb(owner_user_id=owner_user_id, kb_id=kb_id)
         if kb is None:
             raise KeyError(kb_id)

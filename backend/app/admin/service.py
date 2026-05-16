@@ -856,9 +856,12 @@ class AdminService:
         if metadata.get("rag_doc_id") and metadata.get("rag_pipeline_status") == "indexed" and int(metadata.get("rag_indexed_chunk_count") or 0) > 0:
             return "already_indexed"
         if payload.auto_rag_ingest_skip_duplicate and metadata.get("skip_reason") == "duplicate_content_hash":
-            if metadata.get("rag_doc_id"):
+            if metadata.get("rag_doc_id") and int(metadata.get("rag_indexed_chunk_count") or metadata.get("indexed_chunk_count") or 0) > 0:
                 return "already_indexed"
-            return "duplicate_content_hash"
+            # A duplicated crawler artifact can still be missing its RAG document
+            # when earlier vector indexing failed or Milvus was offline. Let active
+            # maintenance / per-run auto ingest repair that gap instead of
+            # permanently skipping the candidate.
         if int(metadata.get("candidate_quality_score") or 0) < payload.auto_rag_ingest_min_quality:
             return "low_quality"
         if int(metadata.get("extraction_quality_score") or 0) < payload.auto_rag_ingest_min_extraction:
@@ -880,7 +883,12 @@ class AdminService:
         candidate = scheduler.store.get_candidate(candidate_id)
         if candidate is None:
             return PolicyCrawlerBatchPublishItem(candidate_id=candidate_id, status="failed", reason="not_found")
-        if skip_duplicates and candidate.metadata.get("skip_reason") == "duplicate_content_hash" and candidate.metadata.get("rag_doc_id"):
+        if (
+            skip_duplicates
+            and candidate.metadata.get("skip_reason") == "duplicate_content_hash"
+            and candidate.metadata.get("rag_doc_id")
+            and int(candidate.metadata.get("rag_indexed_chunk_count") or candidate.metadata.get("indexed_chunk_count") or 0) > 0
+        ):
             return PolicyCrawlerBatchPublishItem(
                 candidate_id=candidate_id,
                 status="skipped",
