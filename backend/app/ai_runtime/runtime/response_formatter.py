@@ -96,9 +96,9 @@ def _append_generated_report_downloads(answer: str, generated_reports: list[dict
 
     blocks: list[str] = []
     if download_lines:
-        blocks.append("### 已生成文件\n" + "\n".join(download_lines))
+        blocks.append("**已生成文件**\n" + "\n".join(download_lines))
     if error_lines:
-        blocks.append("### 文件生成提示\n" + "\n".join(error_lines))
+        blocks.append("**文件生成提示**\n" + "\n".join(error_lines))
     separator = "\n\n" if answer.strip() else ""
     rendered_blocks = "\n\n".join(blocks)
     return f"{answer.rstrip()}{separator}{rendered_blocks}"
@@ -137,7 +137,7 @@ def format_runtime_result(
     citations = _extract_citations(tool_results)
     knowledge_scope = context_bundle.get("knowledge_scope_effective") or request.payload.get(
         "knowledge_scope_effective",
-        "public",
+        "mixed",
     )
     source_summary = _build_source_summary(knowledge_scope=knowledge_scope, citations=citations)
     retrieval_traces = _extract_retrieval_traces(tool_results)

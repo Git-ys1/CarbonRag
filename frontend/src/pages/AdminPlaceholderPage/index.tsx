@@ -333,10 +333,18 @@ export function AdminPlaceholderPage() {
         () =>
             new Set(
                 users
-                    .filter((item) => item.role !== "admin" && item.role !== "super_admin" && item.user_id !== currentUser?.user_id)
+                    .filter((item) => {
+                        if (item.user_id === currentUser?.user_id || item.role === "super_admin") {
+                            return false;
+                        }
+                        if (item.role === "admin") {
+                            return currentUser?.role === "super_admin";
+                        }
+                        return true;
+                    })
                     .map((item) => item.user_id),
             ),
-        [currentUser?.user_id, users],
+        [currentUser?.role, currentUser?.user_id, users],
     );
     const filteredDeletableUserIds = useMemo(
         () => filteredUsers.map((item) => item.user_id).filter((userId) => deletableUserIds.has(userId)),
@@ -823,7 +831,7 @@ export function AdminPlaceholderPage() {
     async function handleDeleteSelectedUsers() {
         const targetIds = selectedDeleteUserIds.filter((userId) => deletableUserIds.has(userId));
         if (!targetIds.length) {
-            message.warning("请选择可删除的普通用户。");
+            message.warning(currentUser?.role === "super_admin" ? "请选择可删除的 user 或 admin 账号。" : "请选择可删除的普通用户。");
             return;
         }
         if (!deleteUsersPassword.trim()) {
@@ -841,7 +849,7 @@ export function AdminPlaceholderPage() {
             setSelectedDeleteUserIds((current) => current.filter((userId) => !result.deleted_user_ids.includes(userId)));
             setDeleteUsersPassword("");
             setDeleteUsersModalOpen(false);
-            message.success(`已删除 ${result.deleted_user_ids.length} 个普通用户账号。`);
+            message.success(`已删除 ${result.deleted_user_ids.length} 个账号。`);
             void refreshSystemStatus();
         } catch (error) {
             setErrorMessage(extractDetailMessage(error) ?? "删除用户失败。请确认密码正确，且未选择管理员或当前账号。");
@@ -2253,7 +2261,9 @@ export function AdminPlaceholderPage() {
                                     disabled: !deletableUserIds.has(record.user_id),
                                     title:
                                         record.role === "admin"
-                                            ? "管理员账号不可删除"
+                                            ? currentUser?.role === "super_admin"
+                                                ? "super admin 可删除 admin 账号"
+                                                : "admin 账号仅 super admin 可删除"
                                             : record.user_id === currentUser?.user_id
                                               ? "不能从后台删除当前账号"
                                               : undefined,
@@ -2362,7 +2372,11 @@ export function AdminPlaceholderPage() {
                     <Alert
                         type="warning"
                         showIcon
-                        message="该操作会删除所选普通用户账号，并立即使其登录会话失效。管理员账号和当前账号不会被允许删除。"
+                        message={
+                            currentUser?.role === "super_admin"
+                                ? "该操作会删除所选 user/admin 账号，并立即使其登录会话失效。super admin 和当前账号不会被允许删除。"
+                                : "该操作会删除所选普通用户账号，并立即使其登录会话失效。admin、super admin 和当前账号不会被允许删除。"
+                        }
                     />
                     <Typography.Text>
                         本次将删除：{selectedDeleteUsers.map((item) => item.username).join("、") || "暂无"}

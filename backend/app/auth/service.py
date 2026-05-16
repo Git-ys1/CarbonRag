@@ -709,6 +709,7 @@ class AuthService:
         actor_user_id: str,
         current_password: str,
         target_user_ids: list[str],
+        actor_role: str = "admin",
     ) -> list[str]:
         actor_row = self._fetch_user_by_id(actor_user_id)
         if actor_row is None:
@@ -732,8 +733,11 @@ class AuthService:
         if missing_ids:
             raise KeyError(", ".join(missing_ids))
 
-        protected = [row["username"] for row in target_rows if row["role"] in {"admin", "super_admin"}]
+        protected_roles = {"super_admin"} if actor_role == "super_admin" else {"admin", "super_admin"}
+        protected = [row["username"] for row in target_rows if row["role"] in protected_roles]
         if protected:
+            if actor_role == "super_admin":
+                raise ProtectedAccountDeletionError("Cannot delete super_admin accounts.")
             raise ProtectedAccountDeletionError("Cannot delete administrator accounts.")
 
         self._delete_user_rows(deduped_target_ids)

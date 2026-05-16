@@ -8,6 +8,7 @@ from app.knowledge.store import KnowledgeStore
 from app.knowledge.policy_ingestion import CrawledDocument, FakeCrawlerProvider
 from app.knowledge.policy_live_crawler import PolicyCrawlerScheduler, PolicyCrawlerStore
 from app.main import app
+from app.auth.schemas import RegisterRequest
 from app.management.service import ManagementService
 from app.management.storage import ManagementStore
 from app.retrieval.public_retriever import get_public_policy_retriever
@@ -250,6 +251,8 @@ def test_admin_batch_delete_users_requires_password_and_blocks_protected_targets
         json={"username": "delete_member", "password": TEST_PASSWORD},
     )
     target_user_id = register_response.json()["user"]["user_id"]
+    admin_target = auth_service.register(RegisterRequest(username="delete_admin", password=TEST_PASSWORD))
+    admin_target = auth_service.update_user(user_id=admin_target.user_id, role="admin", is_active=True)
 
     wrong_password_response = client.request(
         "DELETE",
@@ -280,7 +283,7 @@ def test_admin_batch_delete_users_requires_password_and_blocks_protected_targets
     )
     assert delete_self_response.status_code == 400
 
-    delete_admin_response = client.request(
+    delete_super_admin_response = client.request(
         "DELETE",
         "/api/v1/admin/users",
         json={"user_ids": [admin_user["user_id"]], "current_password": "newpass123"},
@@ -292,7 +295,22 @@ def test_admin_batch_delete_users_requires_password_and_blocks_protected_targets
             payload={"user_ids": [admin_user["user_id"]], "current_password": "newpass123"},
         ),
     )
-    assert delete_admin_response.status_code == 400
+    assert delete_super_admin_response.status_code == 400
+
+    delete_admin_response = client.request(
+        "DELETE",
+        "/api/v1/admin/users",
+        json={"user_ids": [admin_target.user_id], "current_password": "newpass123"},
+        headers=action_headers(
+            management_device,
+            action_type="ADMIN_USER_DELETE",
+            target_type="user_batch",
+            target_id="batch",
+            payload={"user_ids": [admin_target.user_id], "current_password": "newpass123"},
+        ),
+    )
+    assert delete_admin_response.status_code == 200
+    assert delete_admin_response.json()["deleted_user_ids"] == [admin_target.user_id]
 
     delete_response = client.request(
         "DELETE",

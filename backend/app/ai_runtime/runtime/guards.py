@@ -59,6 +59,6 @@ def enforce_ask_request_constraints(request: ChatRequest) -> None:
         raise ValueError("问题不能为空。")
     if len(question) > config.ask_max_question_length:
         raise ValueError(f"问题长度不能超过 {config.ask_max_question_length} 个字符。")
-    effective_scope = request.payload.get("knowledge_scope_effective", "public")
+    effective_scope = request.payload.get("knowledge_scope_effective", "mixed")
     if effective_scope not in {"public", "private_sample", "mixed"}:
         raise ValueError("当前 ask 入口只支持 public、private_sample 或 mixed。")

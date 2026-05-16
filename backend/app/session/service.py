@@ -159,7 +159,7 @@ class SessionService:
         assistant_status: MessageStatus,
         trace_id: str,
         citations: list[AskCitation],
-        knowledge_scope: KnowledgeScope = "public",
+        knowledge_scope: KnowledgeScope = "mixed",
         source_summary: AskSourceSummary | None = None,
     ) -> tuple[SessionMessage, SessionMessage | None]:
         user_message, assistant_placeholder = self.begin_exchange(
@@ -216,7 +216,7 @@ class SessionService:
         assistant_status: MessageStatus,
         trace_id: str,
         citations: list[AskCitation],
-        knowledge_scope: KnowledgeScope = "public",
+        knowledge_scope: KnowledgeScope = "mixed",
         source_summary: AskSourceSummary | None = None,
         thinking_content: str | None = None,
     ) -> SessionMessage | None:

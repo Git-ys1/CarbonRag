@@ -162,11 +162,13 @@ class AdminService:
         self,
         *,
         actor_user_id: str,
+        actor_role: str,
         current_password: str,
         user_ids: list[str],
     ) -> list[str]:
         return self.auth_service.delete_non_admin_users(
             actor_user_id=actor_user_id,
+            actor_role=actor_role,
             current_password=current_password,
             target_user_ids=user_ids,
         )

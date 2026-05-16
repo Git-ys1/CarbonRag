@@ -126,6 +126,7 @@ def delete_admin_users(
     try:
         deleted_user_ids = get_admin_service().delete_users(
             actor_user_id=current_user.user_id,
+            actor_role=current_user.role,
             current_password=payload.current_password,
             user_ids=payload.user_ids,
         )

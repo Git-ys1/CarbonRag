@@ -41,7 +41,7 @@ class AskRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     question: str
-    knowledge_scope: KnowledgeScope = "public"
+    knowledge_scope: KnowledgeScope = "mixed"
     top_k: int = Field(default=5, ge=1)
     attached_file_ids: list[str] = Field(default_factory=list)
     attached_knowledge_item_ids: list[str] = Field(default_factory=list)

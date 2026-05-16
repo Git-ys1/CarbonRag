@@ -14,15 +14,32 @@ REPORT_FILE_INTENT_KEYWORDS = (
     "生成报告",
     "导出报告",
     "下载报告",
+    "创建报告",
+    "新建报告",
+    "报告文件",
+    "可下载报告",
     "生成文件",
     "导出文件",
+    "创建文件",
+    "新建文件",
     "保存为",
     "整理成报告",
     "写成报告",
     "做成报告",
+    "整理成文件",
+    "写成文件",
+    "做成文件",
+    "下载链接",
+    "文件链接",
+    "可下载",
+    "word文档",
+    "word 文件",
+    "docx 文件",
     "report file",
+    "create report",
     "export report",
     "download report",
+    "download link",
 )
 
 
@@ -181,8 +198,8 @@ def _looks_like_report_file_intent(question: str) -> bool:
     normalized = question.lower()
     if any(keyword in normalized for keyword in REPORT_FILE_INTENT_KEYWORDS):
         return True
-    file_words = ("word", "docx", "pdf")
-    action_words = ("生成", "导出", "下载", "保存", "整理", "做成", "写成", "create", "export", "download", "save")
+    file_words = ("word", "docx", "pdf", "报告文件", "文件")
+    action_words = ("生成", "创建", "新建", "导出", "下载", "保存", "整理", "做成", "写成", "给我", "来一份", "create", "export", "download", "save")
     return any(word in normalized for word in file_words) and any(word in normalized for word in action_words)
 
 

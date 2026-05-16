@@ -117,8 +117,8 @@ def build_context_bundle(
     tool_results: list[ToolResult] | None = None,
 ) -> dict:
     if mode.name == "ask":
-        knowledge_scope_requested = request.payload.get("knowledge_scope_requested", "public")
-        knowledge_scope_effective = request.payload.get("knowledge_scope_effective", "public")
+        knowledge_scope_requested = request.payload.get("knowledge_scope_requested", "mixed")
+        knowledge_scope_effective = request.payload.get("knowledge_scope_effective", "mixed")
         recent_messages = request.payload.get("recent_messages", request.payload.get("session_context", []))
         session_summary = request.payload.get("session_summary")
         memory_notes = request.payload.get("memory_notes", [])

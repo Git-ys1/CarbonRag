@@ -167,6 +167,23 @@ def test_orchestrator_adds_report_file_generation_tool_for_export_intent() -> No
     assert tool_sequence[-1] == "report_file_generate"
 
 
+def test_orchestrator_adds_report_file_generation_tool_for_download_link_intent() -> None:
+    request = ChatRequest(
+        mode="ask",
+        user_input="给我一份 Word 文档下载链接",
+        payload={
+            "session_id": "session-demo",
+            "knowledge_scope_requested": "mixed",
+            "knowledge_scope_effective": "mixed",
+            "top_k": 5,
+        },
+    )
+
+    tool_sequence = AIRuntimeOrchestrator._resolve_ask_tool_sequence(request)
+
+    assert tool_sequence[-1] == "report_file_generate"
+
+
 def test_orchestrator_does_not_treat_plain_pdf_question_as_file_export_intent() -> None:
     request = ChatRequest(
         mode="ask",

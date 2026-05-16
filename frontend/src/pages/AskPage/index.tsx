@@ -135,7 +135,7 @@ export function AskPage() {
     const [streamContextSource, setStreamContextSource] = useState<StreamContextSource | null>(null);
     const [selectedThinkingMessageId, setSelectedThinkingMessageId] = useState<string | null>(null);
     const [question, setQuestion] = useState("");
-    const [knowledgeScope, setKnowledgeScope] = useState<KnowledgeScope>("public");
+    const [knowledgeScope, setKnowledgeScope] = useState<KnowledgeScope>("mixed");
     const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
     const [selectedKbId, setSelectedKbId] = useState<string | null>(null);
     const [ragMode, setRagMode] = useState<RagRetrievalMode>("hybrid_rerank");
@@ -353,7 +353,7 @@ export function AskPage() {
             const detail = await getSession(sessionId);
             setActiveSession(detail);
             if (!options.preserveDraftSelections) {
-                setKnowledgeScope(detail.knowledge_scope_last_used ?? "public");
+                setKnowledgeScope(detail.knowledge_scope_last_used ?? "mixed");
                 setDraftAttachedDocIds(getAttachedPrivateSampleIds(detail.attached_files));
                 setDraftAttachedFileIds([]);
             } else {
@@ -1984,7 +1984,7 @@ function buildPanelSourceSummary(citations: AskCitation[], fallback?: AskSourceS
         return summarizeCitations(citations);
     }
     return fallback ?? {
-        knowledge_scope: "public",
+        knowledge_scope: "mixed",
         public_policy_count: 0,
         public_policy_demo_count: 0,
         private_sample_count: 0,
