@@ -9,16 +9,21 @@ import {
 } from "@ant-design/icons";
 import { Button, Card, Descriptions, Empty, Space, Table, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "../../app/AuthContext";
 import { useFeedback } from "../../hooks/useFeedback";
 import {
     approveAdminAccessRequest,
     enrollManagementDevice,
+    getOrCreateManagementDeviceIdentity,
     getManagementOverview,
     getRelayStatus,
     getSshTerminalStatus,
+    listServerOpsCommands,
     rejectAdminAccessRequest,
+    runServerOpsCommand,
+    sendRelayHeartbeat,
+    startSuperAdminRelay,
 } from "../../services/managementApi";
 import type {
     AdminAccessRequest,
@@ -27,16 +32,17 @@ import type {
     ManagementListEnvelope,
     ManagementUserSummary,
     RelayStatusResponse,
+    ServerOpsCommandSummary,
+    ServerOpsRunResponse,
     SshTerminalStatus,
 } from "../../types/management";
-
-const DEVICE_KEY = "carbonrag-management-device-id";
 
 export function SuperAdminPage() {
     const { user } = useAuth();
     const feedback = useFeedback();
     const [loading, setLoading] = useState(true);
     const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+    const [currentDevice, setCurrentDevice] = useState<string>("正在生成设备密钥...");
     const [overview, setOverview] = useState<ManagementListEnvelope>({
         users: [],
         devices: [],
@@ -45,35 +51,52 @@ export function SuperAdminPage() {
     });
     const [relay, setRelay] = useState<RelayStatusResponse | null>(null);
     const [terminal, setTerminal] = useState<SshTerminalStatus | null>(null);
+    const [serverCommands, setServerCommands] = useState<ServerOpsCommandSummary[]>([]);
+    const [lastServerOps, setLastServerOps] = useState<ServerOpsRunResponse | null>(null);
 
-    const currentDevice = useMemo(() => {
-        if (typeof window === "undefined") {
-            return "browser-device";
-        }
-        const existing = window.localStorage.getItem(DEVICE_KEY);
-        if (existing) {
-            return existing;
-        }
-        const next = `device-${crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36)}`;
-        window.localStorage.setItem(DEVICE_KEY, next);
-        return next;
+    useEffect(() => {
+        void getOrCreateManagementDeviceIdentity()
+            .then((identity) => setCurrentDevice(identity.deviceId))
+            .catch((error) => {
+                feedback.error({
+                    title: "设备密钥生成失败",
+                    description: extractErrorMessage(error),
+                    source: "SuperAdminPage",
+                });
+            });
+        void refreshAll();
     }, []);
 
     useEffect(() => {
-        void refreshAll();
-    }, []);
+        const relayId = relay?.current?.relay_session_id;
+        if (!relayId) {
+            return;
+        }
+        const timer = window.setInterval(() => {
+            void sendRelayHeartbeat(relayId)
+                .then(setRelay)
+                .catch(() => {
+                    window.clearInterval(timer);
+                });
+        }, 30_000);
+        return () => window.clearInterval(timer);
+    }, [relay?.current?.relay_session_id]);
 
     async function refreshAll() {
         setLoading(true);
         try {
-            const [overviewResult, relayResult, terminalResult] = await Promise.all([
-                getManagementOverview(),
-                getRelayStatus(),
-                getSshTerminalStatus(),
-            ]);
-            setOverview(overviewResult);
+            const relayResult = await getRelayStatus();
             setRelay(relayResult);
-            setTerminal(terminalResult);
+            if (relayResult.current?.status === "connected") {
+                const [overviewResult, terminalResult, commandsResult] = await Promise.all([
+                    getManagementOverview(),
+                    getSshTerminalStatus(),
+                    listServerOpsCommands().catch(() => []),
+                ]);
+                setOverview(overviewResult);
+                setTerminal(terminalResult);
+                setServerCommands(commandsResult);
+            }
         } catch (error) {
             feedback.error({
                 title: "无法读取超级管理员控制台",
@@ -91,12 +114,14 @@ export function SuperAdminPage() {
         }
         setActionLoadingId("enroll-device");
         try {
+            const identity = await getOrCreateManagementDeviceIdentity();
+            setCurrentDevice(identity.deviceId);
             await enrollManagementDevice({
-                device_id: currentDevice,
+                device_id: identity.deviceId,
                 role_scope: "super_admin",
                 device_name: navigator.userAgent.slice(0, 120) || "当前浏览器",
-                device_public_key: `local-browser-public-key-placeholder:${currentDevice}`,
-                fingerprint_hash: `fp-${currentDevice}`.slice(0, 120),
+                device_public_key: identity.publicKeyJson,
+                fingerprint_hash: identity.fingerprintHash,
                 mac_hint: null,
             });
             feedback.success({ title: "当前设备已登记", history: true, source: "SuperAdminPage" });
@@ -104,6 +129,48 @@ export function SuperAdminPage() {
         } catch (error) {
             feedback.error({
                 title: "设备登记失败",
+                description: extractErrorMessage(error),
+                source: "SuperAdminPage",
+            });
+        } finally {
+            setActionLoadingId(null);
+        }
+    }
+
+    async function handleStartRelay() {
+        if (!user) {
+            return;
+        }
+        setActionLoadingId("start-relay");
+        try {
+            const { ack, identity } = await startSuperAdminRelay(user.user_id);
+            setCurrentDevice(identity.deviceId);
+            feedback.success({ title: "SA Relay 已建立", description: `ACK: ${shortId(ack.request_id)}`, source: "SuperAdminPage" });
+            await refreshAll();
+        } catch (error) {
+            feedback.error({
+                title: "SA Relay 建立失败",
+                description: extractErrorMessage(error),
+                source: "SuperAdminPage",
+            });
+        } finally {
+            setActionLoadingId(null);
+        }
+    }
+
+    async function handleRunServerOps(command: ServerOpsCommandSummary) {
+        if (!window.confirm(`确认执行受控运维命令：${command.description}？`)) {
+            return;
+        }
+        setActionLoadingId(`ops-${command.command_id}`);
+        try {
+            const result = await runServerOpsCommand(command.command_id, command.description);
+            setLastServerOps(result);
+            feedback.success({ title: "运维命令已执行", description: `${command.command_id}: ${result.status}`, source: "SuperAdminPage" });
+            await refreshAll();
+        } catch (error) {
+            feedback.error({
+                title: "运维命令执行失败",
                 description: extractErrorMessage(error),
                 source: "SuperAdminPage",
             });
@@ -255,6 +322,13 @@ export function SuperAdminPage() {
                     >
                         登记当前设备
                     </Button>
+                    <Button
+                        icon={<ApiOutlined />}
+                        loading={actionLoadingId === "start-relay"}
+                        onClick={() => void handleStartRelay()}
+                    >
+                        建立 SA Relay
+                    </Button>
                 </Card>
                 <Card>
                     <Descriptions column={1} size="small" title={<Space><ApiOutlined />Edge Relay</Space>}>
@@ -275,7 +349,7 @@ export function SuperAdminPage() {
                             <Tag color={terminal?.enabled ? "red" : "default"}>{terminal?.enabled ? "已启用" : "默认关闭"}</Tag>
                         </Descriptions.Item>
                         <Descriptions.Item label="说明">
-                            {terminal?.status || "需要单独安全评审后才能启用。"}
+                            {terminal?.status || terminal?.mode || "需要单独安全评审后才能启用。"}
                         </Descriptions.Item>
                     </Descriptions>
                 </Card>
@@ -317,6 +391,35 @@ export function SuperAdminPage() {
                     dataSource={overview.audit_logs}
                     pagination={{ pageSize: 8 }}
                 />
+            </Card>
+            <Card title="服务器运维面板">
+                <Space direction="vertical" size={12} style={{ width: "100%" }}>
+                    <Typography.Text type="secondary">
+                        仅支持白名单命令；每次执行都需要一次性 ACTION_ACK 和二次确认。裸 SSH 终端保持关闭。
+                    </Typography.Text>
+                    <Space wrap>
+                        {serverCommands.map((command) => (
+                            <Button
+                                key={command.command_id}
+                                loading={actionLoadingId === `ops-${command.command_id}`}
+                                onClick={() => void handleRunServerOps(command)}
+                            >
+                                {command.description}
+                            </Button>
+                        ))}
+                        {serverCommands.length === 0 ? <Typography.Text type="secondary">当前未启用受控运维命令。</Typography.Text> : null}
+                    </Space>
+                    {lastServerOps ? (
+                        <Typography.Paragraph>
+                            <Typography.Text strong>最近结果：</Typography.Text>
+                            <Typography.Text code>{lastServerOps.command_id}</Typography.Text>
+                            <Typography.Text> {lastServerOps.status} / {lastServerOps.duration_ms}ms</Typography.Text>
+                            <pre style={{ maxHeight: 240, overflow: "auto", whiteSpace: "pre-wrap" }}>
+                                {lastServerOps.stdout || lastServerOps.stderr || "无输出"}
+                            </pre>
+                        </Typography.Paragraph>
+                    ) : null}
+                </Space>
             </Card>
         </div>
     );

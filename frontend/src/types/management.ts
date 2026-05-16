@@ -56,12 +56,16 @@ export interface ManagementActionRequest {
     role: ManagementRole;
     device_id: string;
     action_type: string;
+    target_type?: string | null;
+    target_id?: string | null;
     payload_hash: string;
     status: ManagementActionStatus;
     ack_token_hash?: string | null;
     expires_at: string;
     created_at: string;
     decided_at?: string | null;
+    consumed_at?: string | null;
+    relay_session_id?: string | null;
 }
 
 export interface ManagementAuditLog {
@@ -131,5 +135,36 @@ export interface AdminAccessRequestEnvelope {
 
 export interface SshTerminalStatus {
     enabled: boolean;
+    status?: string;
+    mode?: string;
+}
+
+export interface ManagementAck {
+    frame_type: string;
+    request_id: string;
+    decision: ManagementDecision;
+    expires_at: string;
+    server_nonce: string;
+    signature: string;
     status: string;
+}
+
+export interface ActionAckEnvelope {
+    action: ManagementActionRequest;
+    ack: ManagementAck;
+}
+
+export interface ServerOpsCommandSummary {
+    command_id: string;
+    description: string;
+}
+
+export interface ServerOpsRunResponse {
+    command_id: string;
+    status: string;
+    exit_code?: number | null;
+    stdout: string;
+    stderr: string;
+    duration_ms: number;
+    truncated: boolean;
 }

@@ -129,6 +129,22 @@ class ManagementStore:
             ).fetchone()
             return int(row["count"] if row else 0)
 
+    def count_active_super_admin_devices(self, owner_user_id: str | None = None) -> int:
+        conditions = ["role_scope = 'super_admin'", "is_active = " + ("TRUE" if self.backend_kind == "postgresql" else "1")]
+        params: list[Any] = []
+        if owner_user_id:
+            conditions.append(f"owner_user_id = {self._p}")
+            params.append(owner_user_id)
+        query = f"SELECT COUNT(*) AS count FROM admin_devices WHERE {' AND '.join(conditions)}"
+        with self._connect() as connection:
+            if self.backend_kind == "postgresql":
+                with connection.cursor() as cursor:
+                    cursor.execute(query, tuple(params))
+                    row = cursor.fetchone()
+            else:
+                row = connection.execute(query, tuple(params)).fetchone()
+        return int(row["count"] if row else 0)
+
     def upsert_device(self, payload: dict[str, Any]) -> dict[str, Any]:
         columns = [
             "device_id",
@@ -331,6 +347,20 @@ class ManagementStore:
             raise RuntimeError("Relay session was not persisted.")
         return session
 
+    def expire_connected_relay_sessions(self, *, user_id: str, role: str, except_session_id: str | None = None) -> None:
+        conditions = ["user_id = " + self._p, "role = " + self._p, "status = 'connected'"]
+        params: list[Any] = [user_id, role]
+        if except_session_id:
+            conditions.append("relay_session_id <> " + self._p)
+            params.append(except_session_id)
+        query = f"UPDATE edge_relay_sessions SET status = 'expired' WHERE {' AND '.join(conditions)}"
+        with self._connect() as connection:
+            if self.backend_kind == "postgresql":
+                with connection.cursor() as cursor:
+                    cursor.execute(query, tuple(params))
+            else:
+                connection.execute(query, tuple(params))
+
     def get_relay_session(self, relay_session_id: str) -> dict[str, Any] | None:
         with self._connect() as connection:
             if self.backend_kind == "postgresql":
@@ -385,12 +415,16 @@ class ManagementStore:
                 payload["role"],
                 payload["device_id"],
                 payload["action_type"],
+                payload.get("target_type"),
+                payload.get("target_id"),
                 payload["payload_hash"],
                 payload["status"],
                 payload.get("ack_token_hash"),
                 payload["expires_at"],
                 payload["created_at"],
                 payload.get("decided_at"),
+                payload.get("consumed_at"),
+                payload.get("relay_session_id"),
             )
             if self.backend_kind == "postgresql":
                 with connection.cursor() as cursor:
@@ -398,22 +432,24 @@ class ManagementStore:
                         """
                         INSERT INTO management_action_requests (
                             action_request_id, user_id, role, device_id, action_type,
-                            payload_hash, status, ack_token_hash, expires_at, created_at, decided_at
+                            target_type, target_id, payload_hash, status, ack_token_hash,
+                            expires_at, created_at, decided_at, consumed_at, relay_session_id
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         """,
                         params,
                     )
             else:
                 connection.execute(
                     """
-                    INSERT INTO management_action_requests (
-                        action_request_id, user_id, role, device_id, action_type,
-                        payload_hash, status, ack_token_hash, expires_at, created_at, decided_at
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    params,
+                        INSERT INTO management_action_requests (
+                            action_request_id, user_id, role, device_id, action_type,
+                            target_type, target_id, payload_hash, status, ack_token_hash,
+                            expires_at, created_at, decided_at, consumed_at, relay_session_id
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        params,
                 )
         action = self.get_action_request(str(payload["action_request_id"]))
         if action is None:
@@ -430,31 +466,125 @@ class ManagementStore:
                 connection.execute("SELECT * FROM management_action_requests WHERE action_request_id = ?", (action_request_id,)).fetchone()
             )
 
-    def has_valid_action_ack(self, *, user_id: str, role: str) -> bool:
+    def consume_action_ack(
+        self,
+        *,
+        action_request_id: str,
+        user_id: str,
+        role: str,
+        action_type: str,
+        target_type: str | None,
+        target_id: str | None,
+        payload_hash: str,
+    ) -> dict[str, Any] | None:
+        now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
         with self._connect() as connection:
-            params = (user_id, role, __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat())
+            params = (
+                now,
+                action_request_id,
+                user_id,
+                role,
+                action_type,
+                target_type,
+                target_type,
+                target_id,
+                target_id,
+                payload_hash,
+                now,
+            )
             if self.backend_kind == "postgresql":
                 with connection.cursor() as cursor:
                     cursor.execute(
                         """
-                        SELECT 1 FROM management_action_requests
-                        WHERE user_id = %s AND role = %s AND status = 'approved' AND expires_at > %s
-                        LIMIT 1
+                        UPDATE management_action_requests
+                        SET consumed_at = %s
+                        WHERE action_request_id = %s
+                          AND user_id = %s
+                          AND role = %s
+                          AND action_type = %s
+                          AND ((target_type IS NULL AND %s IS NULL) OR target_type = %s)
+                          AND ((target_id IS NULL AND %s IS NULL) OR target_id = %s)
+                          AND payload_hash = %s
+                          AND status = 'approved'
+                          AND expires_at > %s
+                          AND consumed_at IS NULL
+                        """,
+                        (now, action_request_id, user_id, role, action_type, target_type, target_type, target_id, target_id, payload_hash, now),
+                    )
+            else:
+                connection.execute(
+                    """
+                    UPDATE management_action_requests
+                    SET consumed_at = ?
+                    WHERE action_request_id = ?
+                      AND user_id = ?
+                      AND role = ?
+                      AND action_type = ?
+                      AND ((target_type IS NULL AND ? IS NULL) OR target_type = ?)
+                      AND ((target_id IS NULL AND ? IS NULL) OR target_id = ?)
+                      AND payload_hash = ?
+                      AND status = 'approved'
+                      AND expires_at > ?
+                      AND consumed_at IS NULL
+                    """,
+                    params,
+                )
+        action = self.get_action_request(action_request_id)
+        return action if action and action.get("consumed_at") == now else None
+
+    def has_active_relay(self, *, user_id: str, role: str) -> bool:
+        return self.get_current_relay_session(user_id=user_id, role=role) is not None
+
+    def insert_nonce(self, payload: dict[str, Any]) -> None:
+        with self._connect() as connection:
+            params = (
+                payload["nonce_id"],
+                payload["user_id"],
+                payload["device_id"],
+                payload["nonce"],
+                payload["frame_type"],
+                payload["payload_hash"],
+                payload["seen_at"],
+                payload["expires_at"],
+            )
+            try:
+                if self.backend_kind == "postgresql":
+                    with connection.cursor() as cursor:
+                        cursor.execute(
+                            """
+                            INSERT INTO management_nonces (
+                                nonce_id, user_id, device_id, nonce, frame_type,
+                                payload_hash, seen_at, expires_at
+                            )
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                            """,
+                            params,
+                        )
+                else:
+                    connection.execute(
+                        """
+                        INSERT INTO management_nonces (
+                            nonce_id, user_id, device_id, nonce, frame_type,
+                            payload_hash, seen_at, expires_at
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         params,
                     )
-                    return cursor.fetchone() is not None
-            return (
-                connection.execute(
-                    """
-                    SELECT 1 FROM management_action_requests
-                    WHERE user_id = ? AND role = ? AND status = 'approved' AND expires_at > ?
-                    LIMIT 1
-                    """,
-                    params,
-                ).fetchone()
-                is not None
-            )
+            except Exception as exc:
+                if "unique" in str(exc).lower() or "duplicate" in str(exc).lower():
+                    from fastapi import HTTPException
+
+                    raise HTTPException(status_code=409, detail="Management frame nonce was already used.") from exc
+                raise
+
+    def cleanup_expired_nonces(self, now: str) -> None:
+        with self._connect() as connection:
+            if self.backend_kind == "postgresql":
+                with connection.cursor() as cursor:
+                    cursor.execute("DELETE FROM management_nonces WHERE expires_at <= %s", (now,))
+            else:
+                connection.execute("DELETE FROM management_nonces WHERE expires_at <= ?", (now,))
 
     def insert_audit_log(self, payload: dict[str, Any]) -> dict[str, Any]:
         payload = {**payload, "detail_json": json.dumps(payload.get("detail_json") or {}, ensure_ascii=False)}

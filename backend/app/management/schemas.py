@@ -72,12 +72,16 @@ class ManagementActionRequest(BaseModel):
     role: ManagementRole
     device_id: str
     action_type: str
+    target_type: str | None = None
+    target_id: str | None = None
     payload_hash: str
     status: ManagementActionStatus
     ack_token_hash: str | None = None
     expires_at: datetime
     created_at: datetime
     decided_at: datetime | None = None
+    consumed_at: datetime | None = None
+    relay_session_id: str | None = None
 
 
 class ManagementAuditLog(BaseModel):
@@ -138,7 +142,7 @@ class DeviceEnrollRequest(BaseModel):
     role_scope: AdminDeviceRoleScope
     device_name: str = Field(min_length=1, max_length=160)
     mac_hint: str | None = Field(default=None, max_length=64)
-    device_public_key: str = Field(min_length=8, max_length=4096)
+    device_public_key: str = Field(min_length=80, max_length=4096)
     fingerprint_hash: str = Field(min_length=12, max_length=128)
 
 
@@ -148,7 +152,7 @@ class AdminAccessRequestCreate(BaseModel):
     device_id: str = Field(min_length=6, max_length=160)
     device_name: str | None = Field(default=None, max_length=160)
     mac_hint: str | None = Field(default=None, max_length=64)
-    device_public_key: str = Field(min_length=8, max_length=4096)
+    device_public_key: str = Field(min_length=80, max_length=4096)
     fingerprint_hash: str = Field(min_length=12, max_length=128)
 
 
@@ -163,7 +167,9 @@ class ActionRequestCreate(BaseModel):
 
     device_id: str = Field(min_length=6, max_length=160)
     action_type: str = Field(min_length=2, max_length=120)
-    payload_hash: str = Field(min_length=16, max_length=128)
+    target_type: str | None = Field(default=None, max_length=120)
+    target_id: str | None = Field(default=None, max_length=240)
+    payload_hash: str = Field(min_length=64, max_length=128)
 
 
 class RelayHeartbeatRequest(BaseModel):
@@ -204,3 +210,20 @@ class ManagementListEnvelope(BaseModel):
     devices: list[AdminDevice] = Field(default_factory=list)
     access_requests: list[AdminAccessRequest] = Field(default_factory=list)
     audit_logs: list[ManagementAuditLog] = Field(default_factory=list)
+
+
+class ServerOpsRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirm: bool = False
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class ServerOpsRunResponse(BaseModel):
+    command_id: str
+    status: str
+    exit_code: int | None = None
+    stdout: str = ""
+    stderr: str = ""
+    duration_ms: int
+    truncated: bool = False

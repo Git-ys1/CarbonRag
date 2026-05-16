@@ -44,7 +44,6 @@ def _iso(value: datetime) -> str:
 class ManagementService:
     def __init__(self, store: ManagementStore | None = None) -> None:
         self.store = store or ManagementStore()
-        self._seen_nonces: set[str] = set()
 
     def _audit(
         self,
@@ -74,12 +73,43 @@ class ManagementService:
         )
 
     def _ensure_nonce(self, frame: ManagementFrame) -> None:
-        nonce_key = f"{frame.user_id}:{frame.device_id}:{frame.nonce}"
-        if nonce_key in self._seen_nonces:
-            raise HTTPException(status_code=409, detail="Management frame nonce was already used.")
-        self._seen_nonces.add(nonce_key)
-        if len(self._seen_nonces) > 10_000:
-            self._seen_nonces = set(list(self._seen_nonces)[-5_000:])
+        now = _utcnow()
+        self.store.cleanup_expired_nonces(_iso(now))
+        self.store.insert_nonce(
+            {
+                "nonce_id": f"nonce-{uuid4().hex[:16]}",
+                "user_id": frame.user_id,
+                "device_id": frame.device_id,
+                "nonce": frame.nonce,
+                "frame_type": frame.frame_type,
+                "payload_hash": frame.payload_hash,
+                "seen_at": _iso(now),
+                "expires_at": _iso(now + timedelta(seconds=900)),
+            }
+        )
+
+    def record_audit(
+        self,
+        *,
+        actor_user_id: str,
+        actor_role: str,
+        action_type: str,
+        decision: str,
+        device_id: str | None = None,
+        target_type: str | None = None,
+        target_id: str | None = None,
+        detail_json: dict | None = None,
+    ) -> None:
+        self._audit(
+            actor_user_id=actor_user_id,
+            actor_role=actor_role,
+            device_id=device_id,
+            action_type=action_type,
+            target_type=target_type,
+            target_id=target_id,
+            decision=decision,
+            detail_json=detail_json,
+        )
 
     def enforce_single_super_admin(self) -> None:
         super_admins = self.store.list_active_super_admins()
@@ -101,7 +131,43 @@ class ManagementService:
         )
 
     def has_valid_action_ack(self, *, user_id: str, role: str) -> bool:
-        return self.store.has_valid_action_ack(user_id=user_id, role=role)
+        return self.store.has_active_relay(user_id=user_id, role=role)
+
+    def has_active_relay(self, *, user_id: str, role: str) -> bool:
+        return self.store.has_active_relay(user_id=user_id, role=role)
+
+    def consume_action_ack(
+        self,
+        *,
+        user_id: str,
+        role: str,
+        action_request_id: str,
+        action_type: str,
+        target_type: str | None,
+        target_id: str | None,
+        payload_hash: str,
+    ) -> bool:
+        action = self.store.consume_action_ack(
+            action_request_id=action_request_id,
+            user_id=user_id,
+            role=role,
+            action_type=action_type,
+            target_type=target_type,
+            target_id=target_id,
+            payload_hash=payload_hash,
+        )
+        if action:
+            self._audit(
+                actor_user_id=user_id,
+                actor_role=role,
+                device_id=str(action.get("device_id") or ""),
+                action_type=f"{action_type}:CONSUME_ACK",
+                target_type=target_type,
+                target_id=target_id,
+                decision="allow",
+                detail_json={"action_request_id": action_request_id, "payload_hash": payload_hash},
+            )
+        return action is not None
 
     def enroll_device(self, user: AuthenticatedUser, payload: DeviceEnrollRequest) -> AdminDeviceEnvelope:
         if user.role == "user":
@@ -114,6 +180,12 @@ class ManagementService:
         existing = self.store.get_device(payload.device_id)
         if existing and existing.get("owner_user_id") != user.user_id:
             raise HTTPException(status_code=409, detail="Device id is already registered by another user.")
+        if payload.role_scope == "super_admin":
+            active_super_devices = self.store.count_active_super_admin_devices()
+            if active_super_devices > 0 and not (existing and bool(existing.get("is_active"))):
+                raise HTTPException(status_code=409, detail="Only one active super_admin device is allowed.")
+        if payload.role_scope == "admin" and self.store.count_active_admin_devices_for_fingerprint(payload.fingerprint_hash) >= MAX_ADMINS_PER_DEVICE:
+            raise HTTPException(status_code=409, detail="This device already has the maximum number of admin bindings.")
 
         now = _utcnow()
         auto_approved = user.role == "super_admin" and payload.role_scope == "super_admin"
@@ -179,6 +251,7 @@ class ManagementService:
                 "server_ack_status": "allow",
             }
         )
+        self.store.expire_connected_relay_sessions(user_id=user.user_id, role="super_admin", except_session_id=ack.request_id)
         self._audit(
             actor_user_id=user.user_id,
             actor_role=user.role,
@@ -209,6 +282,7 @@ class ManagementService:
                 "server_ack_status": "allow",
             }
         )
+        self.store.expire_connected_relay_sessions(user_id=user.user_id, role="admin", except_session_id=ack.request_id)
         self._audit(
             actor_user_id=user.user_id,
             actor_role=user.role,
@@ -227,6 +301,8 @@ class ManagementService:
             raise HTTPException(status_code=403, detail="Approved management device required.")
         if not bool(device.get("is_active")) or not device.get("approved_at"):
             raise HTTPException(status_code=403, detail="Management device is not approved.")
+        if not self.store.has_active_relay(user_id=user.user_id, role=user.role):
+            raise HTTPException(status_code=403, detail="Active management relay required before requesting ACTION_ACK.")
         now = _utcnow()
         ack_token = secrets.token_urlsafe(24)
         action = self.store.insert_action_request(
@@ -236,12 +312,16 @@ class ManagementService:
                 "role": user.role,
                 "device_id": payload.device_id,
                 "action_type": payload.action_type,
+                "target_type": payload.target_type,
+                "target_id": payload.target_id,
                 "payload_hash": payload.payload_hash,
                 "status": "approved",
                 "ack_token_hash": sha256_text(ack_token),
                 "expires_at": _iso(now + timedelta(seconds=ACK_TTL_SECONDS)),
                 "created_at": _iso(now),
                 "decided_at": _iso(now),
+                "consumed_at": None,
+                "relay_session_id": (self.store.get_current_relay_session(user_id=user.user_id, role=user.role) or {}).get("relay_session_id"),
             }
         )
         ack = build_ack(frame_type="ACTION_ACK", request_id=action["action_request_id"])
@@ -250,8 +330,10 @@ class ManagementService:
             actor_role=user.role,
             device_id=payload.device_id,
             action_type=payload.action_type,
+            target_type=payload.target_type,
+            target_id=payload.target_id,
             decision="allow",
-            detail_json={"payload_hash": payload.payload_hash},
+            detail_json={"payload_hash": payload.payload_hash, "action_request_id": action["action_request_id"]},
         )
         return ActionAckEnvelope(action=action, ack=ack)
 

@@ -28,7 +28,7 @@ from app.admin.schemas import (
     UpdateAdminUserRequest,
 )
 from app.admin.service import get_admin_service
-from app.auth.dependencies import require_admin
+from app.auth.dependencies import require_admin, require_management_active_relay, require_management_action_ack
 from app.auth.schemas import AuthenticatedUser, ResetPasswordResponse
 from app.auth.service import AuthenticationError, ProtectedAccountDeletionError
 from app.knowledge import get_knowledge_service
@@ -51,7 +51,7 @@ def _clear_private_retrieval_caches() -> None:
 
 @router.get("/system/status", response_model=AdminSystemStatus)
 def get_admin_system_status(
-    current_user: AuthenticatedUser = Depends(require_admin),
+    current_user: AuthenticatedUser = Depends(require_management_active_relay),
 ) -> AdminSystemStatus:
     del current_user
     return get_admin_service().get_system_status()
@@ -59,7 +59,7 @@ def get_admin_system_status(
 
 @router.get("/users", response_model=list[AdminUserSummary])
 def list_admin_users(
-    current_user: AuthenticatedUser = Depends(require_admin),
+    current_user: AuthenticatedUser = Depends(require_management_active_relay),
 ) -> list[AdminUserSummary]:
     del current_user
     return get_admin_service().list_users()
@@ -69,7 +69,7 @@ def list_admin_users(
 def update_admin_user(
     user_id: str,
     payload: UpdateAdminUserRequest,
-    current_user: AuthenticatedUser = Depends(require_admin),
+    current_user: AuthenticatedUser = Depends(require_management_action_ack("ADMIN_USER_UPDATE", "user", target_param="user_id")),
 ) -> AdminUserSummary:
     del current_user
     try:
@@ -82,7 +82,7 @@ def update_admin_user(
 @router.post("/users/{user_id}/reset-password", response_model=ResetPasswordResponse)
 def reset_admin_user_password(
     user_id: str,
-    current_user: AuthenticatedUser = Depends(require_admin),
+    current_user: AuthenticatedUser = Depends(require_management_action_ack("ADMIN_USER_RESET_PASSWORD", "user", target_param="user_id")),
 ) -> ResetPasswordResponse:
     del current_user
     try:
@@ -95,7 +95,7 @@ def reset_admin_user_password(
 @router.delete("/users", response_model=DeleteAdminUsersResponse)
 def delete_admin_users(
     payload: DeleteAdminUsersRequest,
-    current_user: AuthenticatedUser = Depends(require_admin),
+    current_user: AuthenticatedUser = Depends(require_management_action_ack("ADMIN_USER_DELETE", "user_batch", default_target_id="batch")),
 ) -> DeleteAdminUsersResponse:
     try:
         deleted_user_ids = get_admin_service().delete_users(
@@ -114,7 +114,7 @@ def delete_admin_users(
 
 @router.get("/feedback/overview", response_model=AdminFeedbackOverview)
 def get_admin_feedback_overview(
-    current_user: AuthenticatedUser = Depends(require_admin),
+    current_user: AuthenticatedUser = Depends(require_management_active_relay),
 ) -> AdminFeedbackOverview:
     del current_user
     return get_admin_service().get_feedback_overview()
@@ -122,7 +122,7 @@ def get_admin_feedback_overview(
 
 @router.get("/private-samples", response_model=list[AdminPrivateSampleItem])
 def list_admin_private_samples(
-    current_user: AuthenticatedUser = Depends(require_admin),
+    current_user: AuthenticatedUser = Depends(require_management_active_relay),
 ) -> list[AdminPrivateSampleItem]:
     del current_user
     return get_admin_service().list_private_samples()
@@ -130,7 +130,7 @@ def list_admin_private_samples(
 
 @router.get("/policy-sources", response_model=list[PolicyShowcaseSourceSummary])
 def list_admin_policy_sources(
-    current_user: AuthenticatedUser = Depends(require_admin),
+    current_user: AuthenticatedUser = Depends(require_management_active_relay),
 ) -> list[PolicyShowcaseSourceSummary]:
     del current_user
     return get_admin_service().list_policy_showcase_sources()
@@ -139,7 +139,7 @@ def list_admin_policy_sources(
 @router.post("/policy-sources/{source_id}/run", response_model=PolicyShowcaseStatus)
 def run_admin_policy_source(
     source_id: str,
-    current_user: AuthenticatedUser = Depends(require_admin),
+    current_user: AuthenticatedUser = Depends(require_management_action_ack("ADMIN_POLICY_SOURCE_RUN", "policy_source", target_param="source_id")),
 ) -> PolicyShowcaseStatus:
     try:
         return get_admin_service().run_policy_showcase_source(
@@ -156,7 +156,7 @@ def run_admin_policy_source(
 @router.get("/policy-sources/{source_id}/status", response_model=PolicyShowcaseStatus)
 def get_admin_policy_source_status(
     source_id: str,
-    current_user: AuthenticatedUser = Depends(require_admin),
+    current_user: AuthenticatedUser = Depends(require_management_active_relay),
 ) -> PolicyShowcaseStatus:
     del current_user
     try:
@@ -168,7 +168,7 @@ def get_admin_policy_source_status(
 @router.get("/policy-sources/{source_id}/chunks", response_model=list[PolicyShowcaseChunkSummary])
 def list_admin_policy_source_chunks(
     source_id: str,
-    current_user: AuthenticatedUser = Depends(require_admin),
+    current_user: AuthenticatedUser = Depends(require_management_active_relay),
 ) -> list[PolicyShowcaseChunkSummary]:
     del current_user
     try:
@@ -182,7 +182,7 @@ def get_admin_policy_source_retrieval_preview(
     source_id: str,
     query: str | None = None,
     top_k: int = 5,
-    current_user: AuthenticatedUser = Depends(require_admin),
+    current_user: AuthenticatedUser = Depends(require_management_active_relay),
 ) -> PolicyShowcaseRetrievalPreview:
     del current_user
     try:
@@ -197,7 +197,7 @@ def get_admin_policy_source_retrieval_preview(
 
 @router.get("/policy-crawler/status", response_model=PolicyCrawlerStatusSummary)
 def get_admin_policy_crawler_status(
-    current_user: AuthenticatedUser = Depends(require_admin),
+    current_user: AuthenticatedUser = Depends(require_management_active_relay),
 ) -> PolicyCrawlerStatusSummary:
     del current_user
     return get_admin_service().get_policy_crawler_status()
@@ -205,7 +205,7 @@ def get_admin_policy_crawler_status(
 
 @router.get("/policy-crawler/sources", response_model=list[PolicyCrawlerSourceSummary])
 def list_admin_policy_crawler_sources(
-    current_user: AuthenticatedUser = Depends(require_admin),
+    current_user: AuthenticatedUser = Depends(require_management_active_relay),
 ) -> list[PolicyCrawlerSourceSummary]:
     del current_user
     return get_admin_service().list_policy_crawler_sources()
@@ -214,7 +214,7 @@ def list_admin_policy_crawler_sources(
 @router.post("/policy-crawler/sources", response_model=PolicyCrawlerSourceSummary)
 def create_admin_policy_crawler_source(
     payload: PolicyCrawlerSourceUpsertRequest,
-    current_user: AuthenticatedUser = Depends(require_admin),
+    current_user: AuthenticatedUser = Depends(require_management_action_ack("POLICY_CRAWLER_SOURCE_CREATE", "policy_crawler_source", default_target_id="new")),
 ) -> PolicyCrawlerSourceSummary:
     del current_user
     try:
@@ -225,7 +225,7 @@ def create_admin_policy_crawler_source(
 
 @router.post("/policy-crawler/sources/recommended/import", response_model=PolicyCrawlerRecommendedImportSummary)
 def import_admin_recommended_policy_crawler_sources(
-    current_user: AuthenticatedUser = Depends(require_admin),
+    current_user: AuthenticatedUser = Depends(require_management_action_ack("POLICY_CRAWLER_RECOMMENDED_IMPORT", "policy_crawler_source", default_target_id="recommended")),
 ) -> PolicyCrawlerRecommendedImportSummary:
     del current_user
     try:
@@ -238,7 +238,7 @@ def import_admin_recommended_policy_crawler_sources(
 def update_admin_policy_crawler_source(
     source_id: str,
     payload: PolicyCrawlerSourceUpsertRequest,
-    current_user: AuthenticatedUser = Depends(require_admin),
+    current_user: AuthenticatedUser = Depends(require_management_action_ack("POLICY_CRAWLER_SOURCE_UPDATE", "policy_crawler_source", target_param="source_id")),
 ) -> PolicyCrawlerSourceSummary:
     del current_user
     try:
@@ -252,7 +252,7 @@ def update_admin_policy_crawler_source(
 @router.delete("/policy-crawler/sources/{source_id}")
 def delete_admin_policy_crawler_source(
     source_id: str,
-    current_user: AuthenticatedUser = Depends(require_admin),
+    current_user: AuthenticatedUser = Depends(require_management_action_ack("POLICY_CRAWLER_SOURCE_DELETE", "policy_crawler_source", target_param="source_id")),
 ) -> dict[str, str]:
     del current_user
     try:
@@ -264,7 +264,7 @@ def delete_admin_policy_crawler_source(
 @router.post("/policy-crawler/sources/{source_id}/dry-run", response_model=PolicyCrawlerDryRunSummary)
 def dry_run_admin_policy_crawler_source(
     source_id: str,
-    current_user: AuthenticatedUser = Depends(require_admin),
+    current_user: AuthenticatedUser = Depends(require_management_active_relay),
 ) -> PolicyCrawlerDryRunSummary:
     del current_user
     try:
@@ -278,7 +278,7 @@ def dry_run_admin_policy_crawler_source(
 @router.post("/policy-crawler/sources/{source_id}/run", response_model=PolicyCrawlerRunSummary)
 def run_admin_policy_crawler_source(
     source_id: str,
-    current_user: AuthenticatedUser = Depends(require_admin),
+    current_user: AuthenticatedUser = Depends(require_management_action_ack("POLICY_CRAWLER_SOURCE_RUN", "policy_crawler_source", target_param="source_id")),
 ) -> PolicyCrawlerRunSummary:
     try:
         return get_admin_service().run_policy_crawler_source(
@@ -302,7 +302,7 @@ def run_admin_policy_crawler_source(
 def list_admin_policy_crawler_runs(
     source_id: str | None = None,
     limit: int = 20,
-    current_user: AuthenticatedUser = Depends(require_admin),
+    current_user: AuthenticatedUser = Depends(require_management_active_relay),
 ) -> list[PolicyCrawlerRunSummary]:
     del current_user
     return get_admin_service().list_policy_crawler_runs(source_id=source_id, limit=limit)
@@ -313,7 +313,7 @@ def list_admin_policy_crawler_candidates(
     status: PolicyCrawlerCandidateStatus | None = None,
     source_id: str | None = None,
     limit: int = 50,
-    current_user: AuthenticatedUser = Depends(require_admin),
+    current_user: AuthenticatedUser = Depends(require_management_active_relay),
 ) -> list[PolicyCrawlerCandidateSummary]:
     del current_user
     return get_admin_service().list_policy_crawler_candidates(status=status, source_id=source_id, limit=limit)
@@ -322,7 +322,7 @@ def list_admin_policy_crawler_candidates(
 @router.get("/policy-crawler/candidates/{candidate_id}/artifacts", response_model=PolicyCrawlerCandidateArtifactsSummary)
 def get_admin_policy_crawler_candidate_artifacts(
     candidate_id: str,
-    current_user: AuthenticatedUser = Depends(require_admin),
+    current_user: AuthenticatedUser = Depends(require_management_active_relay),
 ) -> PolicyCrawlerCandidateArtifactsSummary:
     del current_user
     try:
@@ -334,7 +334,7 @@ def get_admin_policy_crawler_candidate_artifacts(
 @router.post("/policy-crawler/candidates/{candidate_id}/publish", response_model=PolicyCrawlerCandidateSummary)
 def publish_admin_policy_crawler_candidate(
     candidate_id: str,
-    current_user: AuthenticatedUser = Depends(require_admin),
+    current_user: AuthenticatedUser = Depends(require_management_action_ack("POLICY_CRAWLER_CANDIDATE_PUBLISH_LEGACY", "policy_crawler_candidate", target_param="candidate_id")),
 ) -> PolicyCrawlerCandidateSummary:
     try:
         return get_admin_service().publish_policy_crawler_candidate(
@@ -352,7 +352,7 @@ def publish_admin_policy_crawler_candidate(
 @router.post("/policy-crawler/candidates/{candidate_id}/publish-to-rag", response_model=PolicyCrawlerCandidateSummary)
 def publish_admin_policy_crawler_candidate_to_rag(
     candidate_id: str,
-    current_user: AuthenticatedUser = Depends(require_admin),
+    current_user: AuthenticatedUser = Depends(require_management_action_ack("POLICY_CRAWLER_CANDIDATE_PUBLISH_TO_RAG", "policy_crawler_candidate", target_param="candidate_id")),
 ) -> PolicyCrawlerCandidateSummary:
     try:
         return get_admin_service().publish_policy_crawler_candidate_to_rag(
@@ -373,7 +373,7 @@ def publish_admin_policy_crawler_candidate_to_rag(
 @router.post("/policy-crawler/candidates/{candidate_id}/reject", response_model=PolicyCrawlerCandidateSummary)
 def reject_admin_policy_crawler_candidate(
     candidate_id: str,
-    current_user: AuthenticatedUser = Depends(require_admin),
+    current_user: AuthenticatedUser = Depends(require_management_action_ack("POLICY_CRAWLER_CANDIDATE_REJECT", "policy_crawler_candidate", target_param="candidate_id")),
 ) -> PolicyCrawlerCandidateSummary:
     try:
         return get_admin_service().reject_policy_crawler_candidate(
@@ -390,7 +390,7 @@ def reject_admin_policy_crawler_candidate(
 def update_admin_private_sample(
     doc_id: str,
     payload: UpdateAdminPrivateSampleRequest,
-    current_user: AuthenticatedUser = Depends(require_admin),
+    current_user: AuthenticatedUser = Depends(require_management_action_ack("ADMIN_PRIVATE_SAMPLE_UPDATE", "private_sample", target_param="doc_id")),
 ) -> AdminPrivateSampleItem:
     try:
         return get_admin_service().update_private_sample(
@@ -407,7 +407,7 @@ def update_admin_private_sample(
 
 @router.get("/knowledge-refresh-tasks", response_model=list[KnowledgeRefreshTask])
 def list_knowledge_refresh_tasks(
-    current_user: AuthenticatedUser = Depends(require_admin),
+    current_user: AuthenticatedUser = Depends(require_management_active_relay),
 ) -> list[KnowledgeRefreshTask]:
     del current_user
     return get_admin_service().list_knowledge_refresh_tasks()
@@ -416,7 +416,7 @@ def list_knowledge_refresh_tasks(
 @router.post("/knowledge-refresh-tasks", response_model=KnowledgeRefreshTask)
 def trigger_knowledge_refresh_task(
     payload: TriggerKnowledgeRefreshRequest,
-    current_user: AuthenticatedUser = Depends(require_admin),
+    current_user: AuthenticatedUser = Depends(require_management_action_ack("ADMIN_KNOWLEDGE_REFRESH_TRIGGER", "knowledge_refresh", default_target_id="trigger")),
 ) -> KnowledgeRefreshTask:
     try:
         return get_admin_service().trigger_knowledge_refresh(
@@ -430,7 +430,7 @@ def trigger_knowledge_refresh_task(
 
 @router.get("/knowledge-items", response_model=list[KnowledgeItemSummary])
 def list_admin_knowledge_items(
-    current_user: AuthenticatedUser = Depends(require_admin),
+    current_user: AuthenticatedUser = Depends(require_management_active_relay),
 ) -> list[KnowledgeItemSummary]:
     del current_user
     service = get_knowledge_service()
@@ -448,7 +448,7 @@ def list_admin_knowledge_items(
 def update_admin_knowledge_item(
     knowledge_item_id: str,
     payload: UpdateAdminPrivateSampleRequest,
-    current_user: AuthenticatedUser = Depends(require_admin),
+    current_user: AuthenticatedUser = Depends(require_management_action_ack("ADMIN_KNOWLEDGE_ITEM_UPDATE", "knowledge_item", target_param="knowledge_item_id")),
 ) -> KnowledgeItemSummary:
     del current_user
     service = get_knowledge_service()
@@ -469,7 +469,7 @@ def update_admin_knowledge_item(
 
 @router.get("/knowledge-tasks", response_model=list[KnowledgeTaskSummary])
 def list_admin_knowledge_tasks(
-    current_user: AuthenticatedUser = Depends(require_admin),
+    current_user: AuthenticatedUser = Depends(require_management_active_relay),
 ) -> list[KnowledgeTaskSummary]:
     del current_user
     tasks = get_knowledge_service().list_tasks(owner_user_id=None, include_shared=True)
@@ -478,7 +478,7 @@ def list_admin_knowledge_tasks(
 
 @router.post("/knowledge-tasks/scan", response_model=list[KnowledgeTaskSummary])
 def scan_admin_knowledge_tasks(
-    current_user: AuthenticatedUser = Depends(require_admin),
+    current_user: AuthenticatedUser = Depends(require_management_action_ack("ADMIN_KNOWLEDGE_TASK_SCAN", "knowledge_task", default_target_id="scan")),
 ) -> list[KnowledgeTaskSummary]:
     del current_user
     service = get_knowledge_service()
@@ -493,7 +493,7 @@ def scan_admin_knowledge_tasks(
 
 @router.post("/knowledge-tasks/rebuild", response_model=list[KnowledgeTaskSummary])
 def rebuild_admin_knowledge_tasks(
-    current_user: AuthenticatedUser = Depends(require_admin),
+    current_user: AuthenticatedUser = Depends(require_management_action_ack("ADMIN_KNOWLEDGE_TASK_REBUILD", "knowledge_task", default_target_id="rebuild")),
 ) -> list[KnowledgeTaskSummary]:
     del current_user
     service = get_knowledge_service()
@@ -505,7 +505,7 @@ def rebuild_admin_knowledge_tasks(
 @router.post("/knowledge-tasks/{task_id}/retry", response_model=KnowledgeTaskSummary)
 def retry_admin_knowledge_task(
     task_id: str,
-    current_user: AuthenticatedUser = Depends(require_admin),
+    current_user: AuthenticatedUser = Depends(require_management_action_ack("ADMIN_KNOWLEDGE_TASK_RETRY", "knowledge_task", target_param="task_id")),
 ) -> KnowledgeTaskSummary:
     del current_user
     service = get_knowledge_service()

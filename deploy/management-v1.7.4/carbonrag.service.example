@@ -1,0 +1,13 @@
+[Unit]
+Description=CarbonRag backend service
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/carbonrag/backend
+Environment=PYTHONPATH=/opt/carbonrag/backend
+ExecStart=/opt/carbonrag/backend/.conda/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

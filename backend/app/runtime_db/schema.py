@@ -838,12 +838,31 @@ CREATE TABLE IF NOT EXISTS management_action_requests (
     role TEXT NOT NULL,
     device_id TEXT NOT NULL,
     action_type TEXT NOT NULL,
+    target_type TEXT,
+    target_id TEXT,
     payload_hash TEXT NOT NULL,
     status TEXT NOT NULL,
     ack_token_hash TEXT,
     expires_at TEXT NOT NULL,
     created_at TEXT NOT NULL,
     decided_at TEXT,
+    consumed_at TEXT,
+    relay_session_id TEXT,
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+    FOREIGN KEY (device_id) REFERENCES admin_devices(device_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS management_nonces (
+    nonce_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    nonce_id TEXT NOT NULL UNIQUE,
+    user_id TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    nonce TEXT NOT NULL,
+    frame_type TEXT NOT NULL,
+    payload_hash TEXT NOT NULL,
+    seen_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    UNIQUE (device_id, nonce),
     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
     FOREIGN KEY (device_id) REFERENCES admin_devices(device_id) ON DELETE CASCADE
 );
@@ -1826,12 +1845,30 @@ POSTGRES_SCHEMA_STATEMENTS = (
         role TEXT NOT NULL,
         device_id TEXT NOT NULL REFERENCES admin_devices(device_id) ON DELETE CASCADE,
         action_type TEXT NOT NULL,
+        target_type TEXT,
+        target_id TEXT,
         payload_hash TEXT NOT NULL,
         status TEXT NOT NULL,
         ack_token_hash TEXT,
         expires_at TEXT NOT NULL,
         created_at TEXT NOT NULL,
-        decided_at TEXT
+        decided_at TEXT,
+        consumed_at TEXT,
+        relay_session_id TEXT
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS management_nonces (
+        nonce_seq BIGSERIAL PRIMARY KEY,
+        nonce_id TEXT NOT NULL UNIQUE,
+        user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+        device_id TEXT NOT NULL REFERENCES admin_devices(device_id) ON DELETE CASCADE,
+        nonce TEXT NOT NULL,
+        frame_type TEXT NOT NULL,
+        payload_hash TEXT NOT NULL,
+        seen_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        UNIQUE (device_id, nonce)
     )
     """,
     """
@@ -2007,6 +2044,10 @@ POSTGRES_SCHEMA_STATEMENTS = (
     "ALTER TABLE rag_chunks ADD COLUMN IF NOT EXISTS keywords_json TEXT NOT NULL DEFAULT '[]'",
     "ALTER TABLE rag_chunks ADD COLUMN IF NOT EXISTS questions_json TEXT NOT NULL DEFAULT '[]'",
     "ALTER TABLE rag_chunks ADD COLUMN IF NOT EXISTS milvus_id TEXT",
+    "ALTER TABLE management_action_requests ADD COLUMN IF NOT EXISTS target_type TEXT",
+    "ALTER TABLE management_action_requests ADD COLUMN IF NOT EXISTS target_id TEXT",
+    "ALTER TABLE management_action_requests ADD COLUMN IF NOT EXISTS consumed_at TEXT",
+    "ALTER TABLE management_action_requests ADD COLUMN IF NOT EXISTS relay_session_id TEXT",
     """
     CREATE TABLE IF NOT EXISTS rag_eval_runs (
         run_seq BIGSERIAL PRIMARY KEY,
@@ -2083,6 +2124,8 @@ POSTGRES_SCHEMA_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_admin_access_requests_status ON admin_access_requests(status, requested_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_admin_access_requests_admin_device ON admin_access_requests(admin_user_id, device_id)",
     "CREATE INDEX IF NOT EXISTS idx_management_action_requests_user_status ON management_action_requests(user_id, status, expires_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_management_action_requests_bound_action ON management_action_requests(user_id, device_id, action_type, target_type, target_id, status, expires_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_management_nonces_expiry ON management_nonces(expires_at)",
     "CREATE INDEX IF NOT EXISTS idx_management_audit_logs_actor_created ON management_audit_logs(actor_user_id, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_private_sample_catalog_overrides_enabled ON private_sample_catalog_overrides(is_enabled, session_attachable)",
     "CREATE INDEX IF NOT EXISTS idx_knowledge_refresh_tasks_scope_created_at ON knowledge_refresh_tasks(scope, created_at DESC)",
@@ -2172,6 +2215,10 @@ def ensure_sqlite_schema(connection: sqlite3.Connection) -> None:
     _ensure_sqlite_column(connection, "rag_chunks", "keywords_json", "TEXT NOT NULL DEFAULT '[]'")
     _ensure_sqlite_column(connection, "rag_chunks", "questions_json", "TEXT NOT NULL DEFAULT '[]'")
     _ensure_sqlite_column(connection, "rag_chunks", "milvus_id", "TEXT")
+    _ensure_sqlite_column(connection, "management_action_requests", "target_type", "TEXT")
+    _ensure_sqlite_column(connection, "management_action_requests", "target_id", "TEXT")
+    _ensure_sqlite_column(connection, "management_action_requests", "consumed_at", "TEXT")
+    _ensure_sqlite_column(connection, "management_action_requests", "relay_session_id", "TEXT")
     connection.executescript(SQLITE_INDEX_SCRIPT)
 
 

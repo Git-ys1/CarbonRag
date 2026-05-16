@@ -8,7 +8,15 @@ from app.knowledge.store import KnowledgeStore
 from app.knowledge.policy_ingestion import CrawledDocument, FakeCrawlerProvider
 from app.knowledge.policy_live_crawler import PolicyCrawlerScheduler, PolicyCrawlerStore
 from app.main import app
+from app.management.service import ManagementService
+from app.management.storage import ManagementStore
 from app.retrieval.public_retriever import get_public_policy_retriever
+from tests.management_test_utils import (
+    build_action_ack_headers,
+    create_management_test_device,
+    enroll_management_device,
+    start_management_relay,
+)
 from tests.test_helpers import TEST_PASSWORD, patch_test_auth_service
 
 client = TestClient(app)
@@ -22,7 +30,18 @@ def build_knowledge_service(*, db_path):
     return KnowledgeService(store=KnowledgeStore(sqlite_db_path=db_path))
 
 
-def login_seed_admin_and_change_password() -> None:
+def build_management_service(*, db_path):
+    return ManagementService(store=ManagementStore(sqlite_db_path=db_path))
+
+
+def patch_management_service(monkeypatch, *, db_path):
+    management_service = build_management_service(db_path=db_path)
+    monkeypatch.setattr("app.management.router.get_management_service", lambda: management_service)
+    monkeypatch.setattr("app.management.service.get_management_service", lambda: management_service)
+    return management_service
+
+
+def login_seed_admin_and_change_password() -> dict:
     login_response = client.post(
         "/api/v1/auth/login",
         json={"username": "admin", "password": "123456"},
@@ -34,6 +53,26 @@ def login_seed_admin_and_change_password() -> None:
         json={"current_password": "123456", "new_password": "newpass123"},
     )
     assert change_response.status_code == 200
+    return change_response.json()["user"]
+
+
+def start_seed_super_admin_management_session() -> tuple[dict, object]:
+    user = client.get("/api/v1/auth/me").json()["user"]
+    device = create_management_test_device("sa-device")
+    enroll_management_device(client, device=device, role_scope="super_admin", device_name="测试超级管理员设备")
+    start_management_relay(client, user_id=user["user_id"], role="super_admin", device=device)
+    return user, device
+
+
+def action_headers(device, *, action_type: str, target_type: str, target_id: str, payload: dict | None = None) -> dict:
+    return build_action_ack_headers(
+        client,
+        device=device,
+        action_type=action_type,
+        target_type=target_type,
+        target_id=target_id,
+        payload=payload,
+    )
 
 
 def test_admin_routes_require_admin_role_and_password_change(monkeypatch, tmp_path) -> None:
@@ -42,6 +81,7 @@ def test_admin_routes_require_admin_role_and_password_change(monkeypatch, tmp_pa
     auth_service.ensure_seed_admin_and_backfill()
     admin_service = build_admin_service(auth_service=auth_service, db_path=db_path)
     knowledge_service = build_knowledge_service(db_path=db_path)
+    patch_management_service(monkeypatch, db_path=db_path)
     monkeypatch.setattr("app.api.v1.endpoints.admin.get_admin_service", lambda: admin_service)
     monkeypatch.setattr("app.private_samples.catalog.get_knowledge_service", lambda: knowledge_service)
 
@@ -65,11 +105,13 @@ def test_admin_routes_manage_users_private_samples_and_refresh(monkeypatch, tmp_
     auth_service.ensure_seed_admin_and_backfill()
     admin_service = build_admin_service(auth_service=auth_service, db_path=db_path)
     knowledge_service = build_knowledge_service(db_path=db_path)
+    patch_management_service(monkeypatch, db_path=db_path)
     monkeypatch.setattr("app.api.v1.endpoints.admin.get_admin_service", lambda: admin_service)
     monkeypatch.setattr("app.private_samples.catalog.get_knowledge_service", lambda: knowledge_service)
 
     client.cookies.clear()
     login_seed_admin_and_change_password()
+    _, management_device = start_seed_super_admin_management_session()
 
     register_response = client.post(
         "/api/v1/auth/register",
@@ -84,11 +126,27 @@ def test_admin_routes_manage_users_private_samples_and_refresh(monkeypatch, tmp_
     update_response = client.patch(
         f"/api/v1/admin/users/{user_id}",
         json={"role": "admin", "is_active": True},
+        headers=action_headers(
+            management_device,
+            action_type="ADMIN_USER_UPDATE",
+            target_type="user",
+            target_id=user_id,
+            payload={"role": "admin", "is_active": True},
+        ),
     )
     assert update_response.status_code == 200
     assert update_response.json()["role"] == "admin"
 
-    reset_response = client.post(f"/api/v1/admin/users/{user_id}/reset-password")
+    reset_response = client.post(
+        f"/api/v1/admin/users/{user_id}/reset-password",
+        headers=action_headers(
+            management_device,
+            action_type="ADMIN_USER_RESET_PASSWORD",
+            target_type="user",
+            target_id=user_id,
+            payload={},
+        ),
+    )
     assert reset_response.status_code == 200
     assert reset_response.json()["temporary_password"]
 
@@ -107,6 +165,13 @@ def test_admin_routes_manage_users_private_samples_and_refresh(monkeypatch, tmp_
     update_private_sample_response = client.patch(
         f"/api/v1/admin/private-samples/{doc_id}",
         json={"is_enabled": True, "session_attachable": True},
+        headers=action_headers(
+            management_device,
+            action_type="ADMIN_PRIVATE_SAMPLE_UPDATE",
+            target_type="private_sample",
+            target_id=doc_id,
+            payload={"is_enabled": True, "session_attachable": True},
+        ),
     )
     assert update_private_sample_response.status_code == 200
     assert update_private_sample_response.json()["doc_id"] == doc_id
@@ -114,6 +179,13 @@ def test_admin_routes_manage_users_private_samples_and_refresh(monkeypatch, tmp_
     refresh_response = client.post(
         "/api/v1/admin/knowledge-refresh-tasks",
         json={"scope": "public_policy"},
+        headers=action_headers(
+            management_device,
+            action_type="ADMIN_KNOWLEDGE_REFRESH_TRIGGER",
+            target_type="knowledge_refresh",
+            target_id="trigger",
+            payload={"scope": "public_policy"},
+        ),
     )
     assert refresh_response.status_code == 200
     assert refresh_response.json()["status"] == "succeeded"
@@ -124,10 +196,12 @@ def test_admin_batch_delete_users_requires_password_and_blocks_protected_targets
     auth_service = patch_test_auth_service(monkeypatch, db_path=db_path)
     auth_service.ensure_seed_admin_and_backfill()
     admin_service = build_admin_service(auth_service=auth_service, db_path=db_path)
+    patch_management_service(monkeypatch, db_path=db_path)
     monkeypatch.setattr("app.api.v1.endpoints.admin.get_admin_service", lambda: admin_service)
 
     client.cookies.clear()
     login_seed_admin_and_change_password()
+    _, management_device = start_seed_super_admin_management_session()
     admin_user = client.get("/api/v1/auth/me").json()["user"]
 
     register_response = client.post(
@@ -140,6 +214,13 @@ def test_admin_batch_delete_users_requires_password_and_blocks_protected_targets
         "DELETE",
         "/api/v1/admin/users",
         json={"user_ids": [target_user_id], "current_password": "wrongpass123"},
+        headers=action_headers(
+            management_device,
+            action_type="ADMIN_USER_DELETE",
+            target_type="user_batch",
+            target_id="batch",
+            payload={"user_ids": [target_user_id], "current_password": "wrongpass123"},
+        ),
     )
     assert wrong_password_response.status_code == 422
     assert any(item.user_id == target_user_id for item in admin_service.list_users())
@@ -148,6 +229,13 @@ def test_admin_batch_delete_users_requires_password_and_blocks_protected_targets
         "DELETE",
         "/api/v1/admin/users",
         json={"user_ids": [admin_user["user_id"]], "current_password": "newpass123"},
+        headers=action_headers(
+            management_device,
+            action_type="ADMIN_USER_DELETE",
+            target_type="user_batch",
+            target_id="batch",
+            payload={"user_ids": [admin_user["user_id"]], "current_password": "newpass123"},
+        ),
     )
     assert delete_self_response.status_code == 400
 
@@ -155,6 +243,13 @@ def test_admin_batch_delete_users_requires_password_and_blocks_protected_targets
         "DELETE",
         "/api/v1/admin/users",
         json={"user_ids": [admin_user["user_id"]], "current_password": "newpass123"},
+        headers=action_headers(
+            management_device,
+            action_type="ADMIN_USER_DELETE",
+            target_type="user_batch",
+            target_id="batch",
+            payload={"user_ids": [admin_user["user_id"]], "current_password": "newpass123"},
+        ),
     )
     assert delete_admin_response.status_code == 400
 
@@ -162,6 +257,13 @@ def test_admin_batch_delete_users_requires_password_and_blocks_protected_targets
         "DELETE",
         "/api/v1/admin/users",
         json={"user_ids": [target_user_id], "current_password": "newpass123"},
+        headers=action_headers(
+            management_device,
+            action_type="ADMIN_USER_DELETE",
+            target_type="user_batch",
+            target_id="batch",
+            payload={"user_ids": [target_user_id], "current_password": "newpass123"},
+        ),
     )
     assert delete_response.status_code == 200
     assert delete_response.json()["deleted_user_ids"] == [target_user_id]
@@ -182,6 +284,7 @@ def test_admin_policy_showcase_source_runs_to_retrievable_demo_policy(monkeypatc
     admin_service = build_admin_service(auth_service=auth_service, db_path=db_path)
     knowledge_service = build_knowledge_service(db_path=db_path)
     runner = KnowledgeTaskRunner()
+    patch_management_service(monkeypatch, db_path=db_path)
     monkeypatch.setattr("app.api.v1.endpoints.admin.get_admin_service", lambda: admin_service)
     monkeypatch.setattr("app.private_samples.catalog.get_knowledge_service", lambda: knowledge_service)
     monkeypatch.setattr("app.admin.service.get_knowledge_service", lambda: knowledge_service)
@@ -198,6 +301,7 @@ def test_admin_policy_showcase_source_runs_to_retrievable_demo_policy(monkeypatc
 
     client.cookies.clear()
     login_seed_admin_and_change_password()
+    _, management_device = start_seed_super_admin_management_session()
 
     sources_response = client.get("/api/v1/admin/policy-sources")
     assert sources_response.status_code == 200
@@ -213,7 +317,16 @@ def test_admin_policy_showcase_source_runs_to_retrievable_demo_policy(monkeypatc
     assert empty_status_response.json()["indexed"] is False
     assert empty_status_response.json()["item"] is None
 
-    run_response = client.post(f"/api/v1/admin/policy-sources/{source['source_id']}/run")
+    run_response = client.post(
+        f"/api/v1/admin/policy-sources/{source['source_id']}/run",
+        headers=action_headers(
+            management_device,
+            action_type="ADMIN_POLICY_SOURCE_RUN",
+            target_type="policy_source",
+            target_id=source["source_id"],
+            payload={},
+        ),
+    )
     assert run_response.status_code == 200
     run_payload = run_response.json()
     assert run_payload["indexed"] is True
@@ -248,7 +361,16 @@ def test_admin_policy_showcase_source_runs_to_retrievable_demo_policy(monkeypatc
     assert all("gov.cn" not in (hit["source_url"] or "") for hit in matched_hits)
 
     item_count = len(knowledge_service.list_admin_items(source_type="public_policy_web"))
-    second_run_response = client.post(f"/api/v1/admin/policy-sources/{source['source_id']}/run")
+    second_run_response = client.post(
+        f"/api/v1/admin/policy-sources/{source['source_id']}/run",
+        headers=action_headers(
+            management_device,
+            action_type="ADMIN_POLICY_SOURCE_RUN",
+            target_type="policy_source",
+            target_id=source["source_id"],
+            payload={},
+        ),
+    )
     assert second_run_response.status_code == 200
     assert len(knowledge_service.list_admin_items(source_type="public_policy_web")) == item_count
 
@@ -272,6 +394,7 @@ def test_admin_policy_live_crawler_review_flow(monkeypatch, tmp_path) -> None:
     scheduler.start()
     knowledge_service = build_knowledge_service(db_path=db_path)
     runner = KnowledgeTaskRunner()
+    patch_management_service(monkeypatch, db_path=db_path)
     monkeypatch.setattr("app.api.v1.endpoints.admin.get_admin_service", lambda: admin_service)
     monkeypatch.setattr("app.admin.service.get_policy_crawler_scheduler", lambda: scheduler)
     monkeypatch.setattr("app.knowledge.service.get_knowledge_service", lambda: knowledge_service)
@@ -285,6 +408,7 @@ def test_admin_policy_live_crawler_review_flow(monkeypatch, tmp_path) -> None:
 
     client.cookies.clear()
     login_seed_admin_and_change_password()
+    _, management_device = start_seed_super_admin_management_session()
 
     status_response = client.get("/api/v1/admin/policy-crawler/status")
     assert status_response.status_code == 200
@@ -295,27 +419,44 @@ def test_admin_policy_live_crawler_review_flow(monkeypatch, tmp_path) -> None:
     assert sources_response.status_code == 200
     assert any(item["source_id"] == "gov-cn-policy-library" for item in sources_response.json())
 
-    import_response = client.post("/api/v1/admin/policy-crawler/sources/recommended/import")
+    import_response = client.post(
+        "/api/v1/admin/policy-crawler/sources/recommended/import",
+        headers=action_headers(
+            management_device,
+            action_type="POLICY_CRAWLER_RECOMMENDED_IMPORT",
+            target_type="policy_crawler_source",
+            target_id="recommended",
+            payload={},
+        ),
+    )
     assert import_response.status_code == 200
     assert import_response.json()["imported_count"] >= 12
     assert import_response.json()["enabled_count"] <= 5
 
+    create_payload = {
+        "source_id": "custom-gov-source",
+        "title": "自定义中国政府网源",
+        "source_url": "https://www.gov.cn/zhengce/custom.html",
+        "source_label": "中国政府网",
+        "source_category": "国家政策",
+        "topic_tags": ["双碳"],
+        "required_keywords": ["碳"],
+        "optional_keywords": ["碳达峰"],
+        "parser_profile": "gov_policy_html",
+        "max_depth": 1,
+        "max_pages": 5,
+        "review_required": True,
+    }
     create_response = client.post(
         "/api/v1/admin/policy-crawler/sources",
-        json={
-            "source_id": "custom-gov-source",
-            "title": "自定义中国政府网源",
-            "source_url": "https://www.gov.cn/zhengce/custom.html",
-            "source_label": "中国政府网",
-            "source_category": "国家政策",
-            "topic_tags": ["双碳"],
-            "required_keywords": ["碳"],
-            "optional_keywords": ["碳达峰"],
-            "parser_profile": "gov_policy_html",
-            "max_depth": 1,
-            "max_pages": 5,
-            "review_required": True,
-        },
+        json=create_payload,
+        headers=action_headers(
+            management_device,
+            action_type="POLICY_CRAWLER_SOURCE_CREATE",
+            target_type="policy_crawler_source",
+            target_id="new",
+            payload=create_payload,
+        ),
     )
     assert create_response.status_code == 200
     assert create_response.json()["is_enabled"] is False
@@ -325,7 +466,16 @@ def test_admin_policy_live_crawler_review_flow(monkeypatch, tmp_path) -> None:
     assert dry_run_response.status_code == 200
     assert dry_run_response.json()["source_id"] == "custom-gov-source"
 
-    run_response = client.post("/api/v1/admin/policy-crawler/sources/gov-cn-policy-library/run")
+    run_response = client.post(
+        "/api/v1/admin/policy-crawler/sources/gov-cn-policy-library/run",
+        headers=action_headers(
+            management_device,
+            action_type="POLICY_CRAWLER_SOURCE_RUN",
+            target_type="policy_crawler_source",
+            target_id="gov-cn-policy-library",
+            payload={},
+        ),
+    )
     assert run_response.status_code == 200
     assert run_response.json()["status"] == "succeeded"
 
@@ -367,7 +517,16 @@ def test_admin_policy_live_crawler_review_flow(monkeypatch, tmp_path) -> None:
         )
 
     monkeypatch.setattr("app.admin.service.publish_crawled_candidate_to_rag_kb", fake_publish_to_rag)
-    rag_publish_response = client.post(f"/api/v1/admin/policy-crawler/candidates/{candidate['candidate_id']}/publish-to-rag")
+    rag_publish_response = client.post(
+        f"/api/v1/admin/policy-crawler/candidates/{candidate['candidate_id']}/publish-to-rag",
+        headers=action_headers(
+            management_device,
+            action_type="POLICY_CRAWLER_CANDIDATE_PUBLISH_TO_RAG",
+            target_type="policy_crawler_candidate",
+            target_id=candidate["candidate_id"],
+            payload={},
+        ),
+    )
     assert rag_publish_response.status_code == 200
     rag_candidate = rag_publish_response.json()
     assert rag_candidate["status"] == "published"
@@ -402,16 +561,36 @@ def test_admin_policy_live_crawler_reject_flow(monkeypatch, tmp_path) -> None:
         settings=Settings(rag_policy_live_crawler_auto_publish=False, rag_policy_live_crawler_scheduled_enabled=False),
     )
     scheduler.start()
+    patch_management_service(monkeypatch, db_path=db_path)
     monkeypatch.setattr("app.api.v1.endpoints.admin.get_admin_service", lambda: admin_service)
     monkeypatch.setattr("app.admin.service.get_policy_crawler_scheduler", lambda: scheduler)
 
     client.cookies.clear()
     login_seed_admin_and_change_password()
+    _, management_device = start_seed_super_admin_management_session()
 
-    run_response = client.post("/api/v1/admin/policy-crawler/sources/gov-cn-policy-library/run")
+    run_response = client.post(
+        "/api/v1/admin/policy-crawler/sources/gov-cn-policy-library/run",
+        headers=action_headers(
+            management_device,
+            action_type="POLICY_CRAWLER_SOURCE_RUN",
+            target_type="policy_crawler_source",
+            target_id="gov-cn-policy-library",
+            payload={},
+        ),
+    )
     assert run_response.status_code == 200
     candidate = client.get("/api/v1/admin/policy-crawler/candidates").json()[0]
 
-    reject_response = client.post(f"/api/v1/admin/policy-crawler/candidates/{candidate['candidate_id']}/reject")
+    reject_response = client.post(
+        f"/api/v1/admin/policy-crawler/candidates/{candidate['candidate_id']}/reject",
+        headers=action_headers(
+            management_device,
+            action_type="POLICY_CRAWLER_CANDIDATE_REJECT",
+            target_type="policy_crawler_candidate",
+            target_id=candidate["candidate_id"],
+            payload={},
+        ),
+    )
     assert reject_response.status_code == 200
     assert reject_response.json()["status"] == "rejected"
