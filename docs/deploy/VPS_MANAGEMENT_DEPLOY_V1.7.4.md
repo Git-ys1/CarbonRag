@@ -35,6 +35,16 @@ APP_DIR=/srv/carbonrag/app SERVICE_NAME=carbonrag bash deploy/management-v1.7.4/
 
 脚本会优先复用仓库根目录 `.venv/bin/python`，其次再尝试 `backend/.conda`，避免服务器部署时误跑系统 Python。备份会排除 `.git`、`.venv`、`node_modules` 和 `backend/.conda`，避免把虚拟环境和前端依赖包复制进备份目录。
 
+如果目标服务器只用于管理中继联调，且现有 `.venv` 已能 import `app.main`，可以跳过全量依赖安装和前端构建，避免拉取 RAG/模型相关大依赖：
+
+```bash
+APP_DIR=/srv/carbonrag/app \
+SERVICE_NAME=carbonrag \
+SKIP_BACKEND_DEPENDENCIES=true \
+SKIP_FRONTEND_BUILD=true \
+bash deploy/management-v1.7.4/deploy-management-v1.7.4.sh
+```
+
 ## 验收
 
 - `/healthz` 可访问。
