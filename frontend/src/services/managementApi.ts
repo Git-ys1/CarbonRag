@@ -1,4 +1,5 @@
 import { httpClient } from "./http";
+import env from "../app/env";
 import type {
     ActionAckEnvelope,
     AdminAccessDecisionRequest,
@@ -74,6 +75,10 @@ export async function getManagementAuditLogs() {
 export async function getSshTerminalStatus() {
     const response = await httpClient.get<SshTerminalStatus>("/v1/management/ssh-terminal/status");
     return response.data;
+}
+
+export function openSshTerminalSocket() {
+    return new WebSocket(buildWebSocketUrl("/v1/management/ssh-terminal/ws"));
 }
 
 export async function listServerOpsCommands() {
@@ -280,6 +285,14 @@ function base64Url(buffer: ArrayBuffer) {
         binary += String.fromCharCode(byte);
     });
     return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/u, "");
+}
+
+function buildWebSocketUrl(path: string) {
+    const base = String(httpClient.defaults.baseURL || env.apiBaseUrl || "/api").replace(/\/+$/u, "");
+    const url = new URL(base, window.location.origin);
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    url.pathname = `${url.pathname.replace(/\/+$/u, "")}${path}`;
+    return url.toString();
 }
 
 function stableStringify(value: unknown): string {

@@ -29,7 +29,7 @@ from app.management.schemas import (
 )
 from app.management.server_ops import list_allowed_server_ops_commands, run_allowed_server_ops_command
 from app.management.service import get_management_service
-from app.management.ssh_terminal import get_terminal_status
+from app.management.ssh_terminal import get_terminal_status, run_terminal_session
 
 router = APIRouter(prefix="/management")
 
@@ -133,9 +133,54 @@ def overview(
 @router.get("/ssh-terminal/status")
 def ssh_terminal_status(
     current_user: AuthenticatedUser = Depends(require_super_admin_relay_ack),
-) -> dict[str, bool | str]:
+) -> dict[str, bool | str | int]:
     del current_user
     return get_terminal_status()
+
+
+@router.websocket("/ssh-terminal/ws")
+async def ssh_terminal_ws(websocket: WebSocket, carbonrag_session: str | None = Cookie(default=None)) -> None:
+    origin = websocket.headers.get("origin", "")
+    host = websocket.headers.get("host", "")
+    if not _is_allowed_ws_origin(origin=origin, host=host):
+        await websocket.close(code=1008)
+        return
+
+    user = get_auth_service().get_user_from_token(carbonrag_session)
+    if user is None or user.role != "super_admin":
+        await websocket.close(code=1008)
+        return
+    if not get_management_service().has_active_relay(user_id=user.user_id, role=user.role):
+        await websocket.close(code=1008)
+        return
+
+    await websocket.accept()
+    get_management_service().record_audit(
+        actor_user_id=user.user_id,
+        actor_role=user.role,
+        action_type="WEB_SSH_TERMINAL_OPEN",
+        decision="allow",
+        detail_json={"transport": "websocket"},
+    )
+
+    def audit_input(command: str) -> None:
+        get_management_service().record_audit(
+            actor_user_id=user.user_id,
+            actor_role=user.role,
+            action_type="WEB_SSH_TERMINAL_INPUT",
+            target_type="terminal_command",
+            decision="allow",
+            detail_json={"command": command},
+        )
+
+    await run_terminal_session(websocket, audit_input=audit_input)
+    get_management_service().record_audit(
+        actor_user_id=user.user_id,
+        actor_role=user.role,
+        action_type="WEB_SSH_TERMINAL_CLOSE",
+        decision="allow",
+        detail_json={"transport": "websocket"},
+    )
 
 
 @router.get("/server-ops/commands")

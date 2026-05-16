@@ -87,6 +87,26 @@ def test_super_admin_device_hello_and_replay_rejected(monkeypatch, tmp_path) -> 
     assert relay_response.json()["super_admin_online"] is True
 
 
+def test_super_admin_can_read_web_ssh_terminal_status_after_relay(monkeypatch, tmp_path) -> None:
+    db_path = tmp_path / "runtime.sqlite3"
+    auth_service = patch_test_auth_service(monkeypatch, db_path=db_path)
+    auth_service.ensure_seed_admin_and_backfill()
+    _patch_management(monkeypatch, db_path=db_path)
+
+    client.cookies.clear()
+    super_admin = _login_seed_super_admin()
+    device = create_management_test_device("sa-device")
+    enroll_management_device(client, device=device, role_scope="super_admin", device_name="测试超级管理员设备")
+    start_management_relay(client, user_id=super_admin["user_id"], role="super_admin", device=device)
+
+    status_response = client.get("/api/v1/management/ssh-terminal/status")
+    assert status_response.status_code == 200, status_response.text
+    payload = status_response.json()
+    assert payload["enabled"] is False
+    assert payload["mode"] == "disabled-placeholder"
+    assert "command_preview" in payload
+
+
 def test_admin_access_request_approval_enables_admin_hello(monkeypatch, tmp_path) -> None:
     db_path = tmp_path / "runtime.sqlite3"
     auth_service = patch_test_auth_service(monkeypatch, db_path=db_path)

@@ -104,6 +104,8 @@ class Settings(BaseSettings):
     memory_note_read_limit: int = 5
     memory_note_max_chars: int = 3_000
     enable_web_ssh_terminal: bool = False
+    web_ssh_command: str = "ssh carbonrag-vps"
+    web_ssh_max_session_seconds: int = 3600
 
     model_config = SettingsConfigDict(
         env_file=REPO_ROOT / ".env",

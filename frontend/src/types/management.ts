@@ -137,6 +137,8 @@ export interface SshTerminalStatus {
     enabled: boolean;
     status?: string;
     mode?: string;
+    command_preview?: string;
+    max_session_seconds?: number;
 }
 
 export interface ManagementAck {

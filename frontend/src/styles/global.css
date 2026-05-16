@@ -3443,6 +3443,23 @@ body {
     gap: 16px;
 }
 
+.super-admin-page__terminal {
+    min-height: 360px;
+    max-height: 520px;
+    margin: 0;
+    padding: 16px;
+    overflow: auto;
+    color: #d4f8df;
+    font-size: 13px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: #07130d;
+    border: 1px solid rgba(37, 184, 119, 0.28);
+    border-radius: 18px;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+
 @media (max-width: 1180px) {
     .super-admin-page__grid {
         grid-template-columns: 1fr;

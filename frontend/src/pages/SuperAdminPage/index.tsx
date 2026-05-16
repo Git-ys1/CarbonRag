@@ -7,9 +7,9 @@ import {
     ReloadOutlined,
     SafetyCertificateOutlined,
 } from "@ant-design/icons";
-import { Button, Card, Descriptions, Empty, Space, Table, Tag, Typography } from "antd";
+import { Alert, Button, Card, Descriptions, Empty, Input, Space, Table, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../../app/AuthContext";
 import { useFeedback } from "../../hooks/useFeedback";
 import {
@@ -20,6 +20,7 @@ import {
     getRelayStatus,
     getSshTerminalStatus,
     listServerOpsCommands,
+    openSshTerminalSocket,
     rejectAdminAccessRequest,
     runServerOpsCommand,
     sendRelayHeartbeat,
@@ -53,6 +54,10 @@ export function SuperAdminPage() {
     const [terminal, setTerminal] = useState<SshTerminalStatus | null>(null);
     const [serverCommands, setServerCommands] = useState<ServerOpsCommandSummary[]>([]);
     const [lastServerOps, setLastServerOps] = useState<ServerOpsRunResponse | null>(null);
+    const terminalSocketRef = useRef<WebSocket | null>(null);
+    const [terminalConnected, setTerminalConnected] = useState(false);
+    const [terminalOutput, setTerminalOutput] = useState("");
+    const [terminalInput, setTerminalInput] = useState("");
 
     useEffect(() => {
         void getOrCreateManagementDeviceIdentity()
@@ -81,6 +86,12 @@ export function SuperAdminPage() {
         }, 30_000);
         return () => window.clearInterval(timer);
     }, [relay?.current?.relay_session_id]);
+
+    useEffect(() => {
+        return () => {
+            terminalSocketRef.current?.close();
+        };
+    }, []);
 
     async function refreshAll() {
         setLoading(true);
@@ -177,6 +188,74 @@ export function SuperAdminPage() {
         } finally {
             setActionLoadingId(null);
         }
+    }
+
+    function handleOpenTerminal() {
+        if (!terminal?.enabled) {
+            feedback.warning({ title: "Web SSH 尚未启用", description: "请先在后端配置 ENABLE_WEB_SSH_TERMINAL=true。", source: "SuperAdminPage" });
+            return;
+        }
+        if (!relay?.current) {
+            feedback.warning({ title: "需要 SA Relay", description: "请先建立 SA Relay。", source: "SuperAdminPage" });
+            return;
+        }
+        terminalSocketRef.current?.close();
+        setTerminalOutput("");
+        appendTerminalOutput(`[CarbonRag] 正在连接 Web SSH：${terminal.command_preview || "server terminal"}\n`);
+        const socket = openSshTerminalSocket();
+        terminalSocketRef.current = socket;
+        socket.onopen = () => {
+            setTerminalConnected(true);
+            appendTerminalOutput("[CarbonRag] Web SSH 已连接。\n");
+        };
+        socket.onmessage = (event) => {
+            try {
+                const payload = JSON.parse(String(event.data)) as { type?: string; data?: string; detail?: string; status?: string; command?: string };
+                if (payload.type === "output") {
+                    appendTerminalOutput(payload.data || "");
+                    return;
+                }
+                if (payload.type === "error") {
+                    appendTerminalOutput(`\n[CarbonRag:error] ${payload.detail || "terminal error"}\n`);
+                    return;
+                }
+                if (payload.type === "status") {
+                    appendTerminalOutput(`\n[CarbonRag] ${payload.status || "status"}${payload.command ? `: ${payload.command}` : ""}\n`);
+                    return;
+                }
+                appendTerminalOutput(`${String(event.data)}\n`);
+            } catch {
+                appendTerminalOutput(`${String(event.data)}\n`);
+            }
+        };
+        socket.onerror = () => {
+            appendTerminalOutput("\n[CarbonRag:error] Web SSH 连接异常。\n");
+        };
+        socket.onclose = () => {
+            setTerminalConnected(false);
+            appendTerminalOutput("\n[CarbonRag] Web SSH 已断开。\n");
+            terminalSocketRef.current = null;
+        };
+    }
+
+    function handleCloseTerminal() {
+        terminalSocketRef.current?.send(JSON.stringify({ type: "close" }));
+        terminalSocketRef.current?.close();
+        terminalSocketRef.current = null;
+        setTerminalConnected(false);
+    }
+
+    function handleSendTerminalInput(value?: string) {
+        const command = (value ?? terminalInput).trimEnd();
+        if (!command || !terminalSocketRef.current || terminalSocketRef.current.readyState !== WebSocket.OPEN) {
+            return;
+        }
+        terminalSocketRef.current.send(JSON.stringify({ type: "input", data: `${command}\n` }));
+        setTerminalInput("");
+    }
+
+    function appendTerminalOutput(value: string) {
+        setTerminalOutput((current) => `${current}${value}`.slice(-80_000));
     }
 
     async function handleApproveRequest(request: AdminAccessRequest) {
@@ -295,7 +374,7 @@ export function SuperAdminPage() {
                 <Space direction="vertical" size={6}>
                     <Typography.Title level={2}>super admin 控制台</Typography.Title>
                     <Typography.Text type="secondary">
-                        管理设备绑定、管理员恢复申请、Relay 状态和审计记录。Web SSH 当前保持关闭。
+                        管理设备绑定、Relay 状态、Web SSH 终端、审计记录和管理员兼容恢复申请。
                     </Typography.Text>
                 </Space>
                 <Button icon={<ReloadOutlined />} onClick={() => void refreshAll()} loading={loading}>
@@ -349,21 +428,78 @@ export function SuperAdminPage() {
                             <Tag color={terminal?.enabled ? "red" : "default"}>{terminal?.enabled ? "已启用" : "默认关闭"}</Tag>
                         </Descriptions.Item>
                         <Descriptions.Item label="说明">
-                            {terminal?.status || terminal?.mode || "需要单独安全评审后才能启用。"}
+                            {terminal?.command_preview || terminal?.status || terminal?.mode || "需要单独安全评审后才能启用。"}
                         </Descriptions.Item>
                     </Descriptions>
                 </Card>
             </div>
 
-            <Card title="待审批管理员恢复申请">
-                <Table
-                    rowKey="request_id"
-                    loading={loading}
-                    columns={requestColumns}
-                    dataSource={overview.access_requests}
-                    pagination={{ pageSize: 6 }}
-                    locale={{ emptyText: <Empty description="暂无恢复申请" /> }}
-                />
+            <Card
+                title="Web SSH 终端"
+                extra={
+                    <Space>
+                        <Button onClick={handleOpenTerminal} disabled={terminalConnected || !terminal?.enabled || !relay?.current}>
+                            连接终端
+                        </Button>
+                        <Button danger onClick={handleCloseTerminal} disabled={!terminalConnected}>
+                            断开
+                        </Button>
+                    </Space>
+                }
+            >
+                <Space direction="vertical" size={12} style={{ width: "100%" }}>
+                    <Alert
+                        showIcon
+                        type={terminal?.enabled ? "warning" : "info"}
+                        message={terminal?.enabled ? "已启用后端代理终端" : "Web SSH 当前关闭"}
+                        description={
+                            terminal?.enabled
+                                ? `终端命令：${terminal.command_preview || "未配置"}。输入内容会写入审计日志；请不要在此粘贴密钥或长期令牌。`
+                                : "后端未设置 ENABLE_WEB_SSH_TERMINAL=true。启用后需要 active SA Relay 才能连接。"
+                        }
+                    />
+                    <pre className="super-admin-page__terminal">
+                        {terminalOutput || "尚未连接。"}
+                    </pre>
+                    <Input.Search
+                        value={terminalInput}
+                        enterButton="发送"
+                        disabled={!terminalConnected}
+                        placeholder="输入终端命令后回车，例如 pwd / git status / systemctl status carbonrag"
+                        onChange={(event) => setTerminalInput(event.target.value)}
+                        onSearch={handleSendTerminalInput}
+                    />
+                </Space>
+            </Card>
+
+            <Card title="服务器运维面板">
+                <Space direction="vertical" size={12} style={{ width: "100%" }}>
+                    <Typography.Text type="secondary">
+                        快捷白名单命令保留给不想打开终端的场景；完整终端请使用上方 Web SSH。
+                    </Typography.Text>
+                    <Space wrap>
+                        {serverCommands.map((command) => (
+                            <Button
+                                key={command.command_id}
+                                loading={actionLoadingId === `ops-${command.command_id}`}
+                                onClick={() => void handleRunServerOps(command)}
+                            >
+                                {command.description}
+                            </Button>
+                        ))}
+                        {serverCommands.length === 0 ? <Typography.Text type="secondary">当前未启用受控运维命令。</Typography.Text> : null}
+                    </Space>
+                    {lastServerOps ? (
+                        <Typography.Paragraph>
+                            <Typography.Text strong>最近结果：</Typography.Text>
+                            <Typography.Text code>{lastServerOps.command_id}</Typography.Text>
+                            <Typography.Text> {lastServerOps.status} / {lastServerOps.duration_ms}ms</Typography.Text>
+                            <pre style={{ maxHeight: 240, overflow: "auto", whiteSpace: "pre-wrap" }}>
+                                {lastServerOps.stdout || lastServerOps.stderr || "无输出"}
+                            </pre>
+                        </Typography.Paragraph>
+                    ) : null}
+                </Space>
             </Card>
             <Card title="管理员与用户">
                 <Table
@@ -392,34 +528,15 @@ export function SuperAdminPage() {
                     pagination={{ pageSize: 8 }}
                 />
             </Card>
-            <Card title="服务器运维面板">
-                <Space direction="vertical" size={12} style={{ width: "100%" }}>
-                    <Typography.Text type="secondary">
-                        仅支持白名单命令；每次执行都需要一次性 ACTION_ACK 和二次确认。裸 SSH 终端保持关闭。
-                    </Typography.Text>
-                    <Space wrap>
-                        {serverCommands.map((command) => (
-                            <Button
-                                key={command.command_id}
-                                loading={actionLoadingId === `ops-${command.command_id}`}
-                                onClick={() => void handleRunServerOps(command)}
-                            >
-                                {command.description}
-                            </Button>
-                        ))}
-                        {serverCommands.length === 0 ? <Typography.Text type="secondary">当前未启用受控运维命令。</Typography.Text> : null}
-                    </Space>
-                    {lastServerOps ? (
-                        <Typography.Paragraph>
-                            <Typography.Text strong>最近结果：</Typography.Text>
-                            <Typography.Text code>{lastServerOps.command_id}</Typography.Text>
-                            <Typography.Text> {lastServerOps.status} / {lastServerOps.duration_ms}ms</Typography.Text>
-                            <pre style={{ maxHeight: 240, overflow: "auto", whiteSpace: "pre-wrap" }}>
-                                {lastServerOps.stdout || lastServerOps.stderr || "无输出"}
-                            </pre>
-                        </Typography.Paragraph>
-                    ) : null}
-                </Space>
+            <Card title="兼容：待审批管理员恢复申请">
+                <Table
+                    rowKey="request_id"
+                    loading={loading}
+                    columns={requestColumns}
+                    dataSource={overview.access_requests}
+                    pagination={{ pageSize: 6 }}
+                    locale={{ emptyText: <Empty description="暂无恢复申请。新管理员建议由 super admin 直接创建。" /> }}
+                />
             </Card>
         </div>
     );
