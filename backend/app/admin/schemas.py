@@ -423,6 +423,35 @@ class PolicyCrawlerBatchPublishResponse(BaseModel):
     items: list[PolicyCrawlerBatchPublishItem] = Field(default_factory=list)
 
 
+class PolicyCrawlerActiveMaintenanceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    retry_failed_ingestion: bool = True
+    crawl_enabled_sources: bool = False
+    source_ids: list[str] = Field(default_factory=list, max_length=10)
+    domains: list[str] = Field(default_factory=list, max_length=10)
+    max_sources: int = Field(default=2, ge=0, le=10)
+    max_candidates: int = Field(default=20, ge=0, le=100)
+    auto_rag_ingest_min_quality: int = Field(default=60, ge=0, le=100)
+    auto_rag_ingest_min_extraction: int = Field(default=60, ge=0, le=100)
+    auto_rag_ingest_min_markdown_size: int = Field(default=800, ge=0, le=100_000)
+    auto_rag_ingest_skip_duplicate: bool = True
+
+
+class PolicyCrawlerActiveMaintenanceResponse(BaseModel):
+    status: Literal["succeeded", "partial", "skipped"] = "succeeded"
+    retried_count: int = 0
+    retry_published_count: int = 0
+    retry_skipped_count: int = 0
+    retry_failed_count: int = 0
+    crawled_source_count: int = 0
+    crawled_runs: list[PolicyCrawlerRunSummary] = Field(default_factory=list)
+    items: list[PolicyCrawlerBatchPublishItem] = Field(default_factory=list)
+    target_kb_id: str | None = None
+    target_kb_name: str | None = "自动爬虫知识库"
+    warnings: list[str] = Field(default_factory=list)
+
+
 class PolicyCrawlerAutoRagKbStatus(BaseModel):
     kb_id: str | None = None
     kb_name: str = "自动爬虫知识库"

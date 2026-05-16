@@ -347,6 +347,33 @@ export interface PolicyCrawlerBatchPublishResponse {
     items: PolicyCrawlerBatchPublishItem[];
 }
 
+export interface PolicyCrawlerActiveMaintenanceRequest {
+    retry_failed_ingestion?: boolean;
+    crawl_enabled_sources?: boolean;
+    source_ids?: string[];
+    domains?: string[];
+    max_sources?: number;
+    max_candidates?: number;
+    auto_rag_ingest_min_quality?: number;
+    auto_rag_ingest_min_extraction?: number;
+    auto_rag_ingest_min_markdown_size?: number;
+    auto_rag_ingest_skip_duplicate?: boolean;
+}
+
+export interface PolicyCrawlerActiveMaintenanceResponse {
+    status: "succeeded" | "partial" | "skipped";
+    retried_count: number;
+    retry_published_count: number;
+    retry_skipped_count: number;
+    retry_failed_count: number;
+    crawled_source_count: number;
+    crawled_runs: PolicyCrawlerRunSummary[];
+    items: PolicyCrawlerBatchPublishItem[];
+    target_kb_id: string | null;
+    target_kb_name: string | null;
+    warnings: string[];
+}
+
 export interface PolicyCrawlerAutoRagKbStatus {
     kb_id: string | null;
     kb_name: string;

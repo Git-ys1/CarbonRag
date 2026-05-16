@@ -9,6 +9,8 @@ import type {
     DeleteAdminUsersRequest,
     DeleteAdminUsersResponse,
     KnowledgeRefreshTask,
+    PolicyCrawlerActiveMaintenanceRequest,
+    PolicyCrawlerActiveMaintenanceResponse,
     PolicyCrawlerCandidateStatus,
     PolicyCrawlerAutoRagKbStatus,
     PolicyCrawlerBatchPublishRequest,
@@ -277,6 +279,15 @@ export async function batchPublishPolicyCrawlerCandidatesToRag(payload: PolicyCr
         "/v1/admin/policy-crawler/candidates/batch-publish-to-rag",
         payload,
         { ...crawlerRequestConfig, headers },
+    );
+    return response.data;
+}
+
+export async function runPolicyCrawlerActiveMaintenance(payload: PolicyCrawlerActiveMaintenanceRequest = {}) {
+    const response = await httpClient.post<PolicyCrawlerActiveMaintenanceResponse>(
+        "/v1/admin/policy-crawler/active-maintenance/run",
+        payload,
+        crawlerRequestConfig,
     );
     return response.data;
 }

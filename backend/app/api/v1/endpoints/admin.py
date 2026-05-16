@@ -11,6 +11,8 @@ from app.admin.schemas import (
     DeleteAdminUsersRequest,
     DeleteAdminUsersResponse,
     KnowledgeRefreshTask,
+    PolicyCrawlerActiveMaintenanceRequest,
+    PolicyCrawlerActiveMaintenanceResponse,
     PolicyCrawlerAutoRagKbStatus,
     PolicyCrawlerBatchPublishRequest,
     PolicyCrawlerBatchPublishResponse,
@@ -383,6 +385,17 @@ def get_admin_policy_crawler_auto_rag_kb_status(
 ) -> PolicyCrawlerAutoRagKbStatus:
     del current_user
     return get_admin_service().get_policy_crawler_auto_rag_kb_status()
+
+
+@router.post("/policy-crawler/active-maintenance/run", response_model=PolicyCrawlerActiveMaintenanceResponse)
+def run_admin_policy_crawler_active_maintenance(
+    payload: PolicyCrawlerActiveMaintenanceRequest | None = None,
+    current_user: AuthenticatedUser = Depends(require_management_active_relay),
+) -> PolicyCrawlerActiveMaintenanceResponse:
+    return get_admin_service().run_policy_crawler_active_maintenance(
+        reviewed_by_user_id=current_user.user_id,
+        payload=payload or PolicyCrawlerActiveMaintenanceRequest(),
+    )
 
 
 @router.get("/policy-crawler/candidates/{candidate_id}/artifacts", response_model=PolicyCrawlerCandidateArtifactsSummary)

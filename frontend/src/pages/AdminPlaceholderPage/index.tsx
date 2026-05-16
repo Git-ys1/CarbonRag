@@ -62,6 +62,7 @@ import {
     publishPolicyCrawlerCandidateToRag,
     rejectPolicyCrawlerCandidate,
     resetAdminUserPassword,
+    runPolicyCrawlerActiveMaintenance,
     runPolicyCrawlerSource,
     runPolicyShowcaseSource,
     updateAdminUser,
@@ -294,6 +295,9 @@ export function AdminPlaceholderPage() {
     const [importingRecommendedSources, setImportingRecommendedSources] = useState(false);
     const [dryRunSourceId, setDryRunSourceId] = useState<string | null>(null);
     const [dryRunResult, setDryRunResult] = useState<PolicyCrawlerDryRunSummary | null>(null);
+    const [activeMaintenanceRunning, setActiveMaintenanceRunning] = useState(false);
+    const [activeMaintenanceRan, setActiveMaintenanceRan] = useState(false);
+    const [activeMaintenanceSummary, setActiveMaintenanceSummary] = useState<string | null>(null);
 
     useEffect(() => {
         if (!errorMessage) {
@@ -707,6 +711,44 @@ export function AdminPlaceholderPage() {
         setPolicyCrawlerAutoKbStatus(autoKbStatus);
     }
 
+    async function runActiveCrawlerMaintenance(options: { sourceId?: string; domain?: string; crawl?: boolean; silent?: boolean } = {}) {
+        if (activeMaintenanceRunning) {
+            return;
+        }
+        setActiveMaintenanceRunning(true);
+        if (!options.silent) {
+            setErrorMessage(null);
+        }
+        try {
+            const result = await runPolicyCrawlerActiveMaintenance({
+                retry_failed_ingestion: true,
+                crawl_enabled_sources: Boolean(options.crawl),
+                source_ids: options.sourceId ? [options.sourceId] : [],
+                domains: options.domain ? [options.domain] : [],
+                max_sources: options.crawl ? 1 : 0,
+                max_candidates: 20,
+                auto_rag_ingest_min_quality: 60,
+                auto_rag_ingest_min_extraction: 60,
+                auto_rag_ingest_min_markdown_size: 800,
+                auto_rag_ingest_skip_duplicate: true,
+            });
+            const summary = `活跃维护：重试 ${result.retried_count} 条，入库 ${result.retry_published_count} 条，跳过 ${result.retry_skipped_count} 条，失败 ${result.retry_failed_count} 条，抓取源 ${result.crawled_source_count} 个。`;
+            setActiveMaintenanceSummary(summary);
+            if (!options.silent || result.retry_published_count > 0 || result.crawled_source_count > 0) {
+                message.success(summary);
+            }
+            if (result.retry_published_count > 0 || result.crawled_source_count > 0) {
+                await fetchPolicyCrawlerWorkspace();
+            }
+        } catch (error) {
+            if (!options.silent) {
+                setErrorMessage(extractDetailMessage(error) ?? "自动爬虫活跃维护失败。");
+            }
+        } finally {
+            setActiveMaintenanceRunning(false);
+        }
+    }
+
     async function loadAdminWorkspace() {
         setLoading(true);
         setErrorMessage(null);
@@ -754,6 +796,10 @@ export function AdminPlaceholderPage() {
                 setPolicyShowcaseStatus(await fetchPolicyShowcase(nextPolicySources[0].source_id));
             } else {
                 setPolicyShowcaseStatus(null);
+            }
+            if (!activeMaintenanceRan) {
+                setActiveMaintenanceRan(true);
+                void runActiveCrawlerMaintenance({ silent: true });
             }
         } catch (error) {
             const detail = extractDetailMessage(error) ?? "加载管理员工作台失败。";
@@ -1890,6 +1936,22 @@ export function AdminPlaceholderPage() {
                                                                                 抓取并自动入库
                                                                             </Button>
                                                                         </Tooltip>
+                                                                        <Tooltip title={disabledReason ?? "在当前 active management relay 下维护此官方域名：先重试失败入库，再抓取该源并自动入库。"}>
+                                                                            <Button
+                                                                                icon={<SyncOutlined />}
+                                                                                disabled={Boolean(disabledReason)}
+                                                                                loading={activeMaintenanceRunning}
+                                                                                onClick={() =>
+                                                                                    void runActiveCrawlerMaintenance({
+                                                                                        sourceId: source.source_id,
+                                                                                        domain: source.allowed_domain,
+                                                                                        crawl: true,
+                                                                                    })
+                                                                                }
+                                                                            >
+                                                                                活跃维护
+                                                                            </Button>
+                                                                        </Tooltip>
                                                                     </Space>
                                                                 </Space>
                                                             </Card>
@@ -2087,7 +2149,7 @@ export function AdminPlaceholderPage() {
                                                     showIcon
                                                     type={policyCrawlerAutoKbStatus?.found ? "success" : "info"}
                                                     message="自动爬虫知识库"
-                                                    description="系统自动维护 / 管理员只读。合格候选通过 quick pipeline 后进入该共享知识库，普通用户可在 AskPage 混合检索中引用。"
+                                                    description={activeMaintenanceSummary ?? "系统自动维护 / 管理员只读。合格候选通过 quick pipeline 后进入该共享知识库，普通用户可在 AskPage 混合检索中引用。"}
                                                 />
                                                 <Descriptions bordered size="small" column={2}>
                                                     <Descriptions.Item label="KB">
@@ -2113,6 +2175,13 @@ export function AdminPlaceholderPage() {
                                                     <Button onClick={() => navigate("/kb")}>跳转知识库工作台</Button>
                                                     <Button icon={<SyncOutlined />} onClick={() => void fetchPolicyCrawlerWorkspace()}>
                                                         刷新状态
+                                                    </Button>
+                                                    <Button
+                                                        icon={<CloudServerOutlined />}
+                                                        loading={activeMaintenanceRunning}
+                                                        onClick={() => void runActiveCrawlerMaintenance()}
+                                                    >
+                                                        重试待入库文件
                                                     </Button>
                                                 </Space>
                                                 <Table

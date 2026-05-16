@@ -16,6 +16,8 @@ from app.admin.schemas import (
     KnowledgeRefreshStatus,
     KnowledgeRefreshScope,
     PolicyCrawlerAutoRagKbStatus,
+    PolicyCrawlerActiveMaintenanceRequest,
+    PolicyCrawlerActiveMaintenanceResponse,
     PolicyCrawlerBatchPublishItem,
     PolicyCrawlerBatchPublishResponse,
     PolicyCrawlerCandidateStatus,
@@ -685,6 +687,86 @@ class AdminService:
             items=items,
         )
 
+    def run_policy_crawler_active_maintenance(
+        self,
+        *,
+        reviewed_by_user_id: str | None,
+        payload: PolicyCrawlerActiveMaintenanceRequest,
+    ) -> PolicyCrawlerActiveMaintenanceResponse:
+        """Retry crawler-to-RAG ingestion while an admin/super_admin relay is active.
+
+        This is intentionally separate from global auto_publish: it only runs after
+        an authenticated management session calls it, and it still uses the V1.7.3
+        artifact/quality gates before touching the shared RAG KB.
+        """
+
+        scheduler = get_policy_crawler_scheduler()
+        run_payload = self._maintenance_run_payload(payload)
+        items: list[PolicyCrawlerBatchPublishItem] = []
+        warnings: list[str] = []
+
+        if payload.retry_failed_ingestion:
+            candidates, _ = scheduler.store.list_candidates_page(
+                status="pending_review",
+                page=1,
+                page_size=payload.max_candidates,
+                sort_by="updated_at",
+                sort_order="asc",
+            )
+            for candidate in candidates:
+                if not self._candidate_needs_rag_ingestion_retry(candidate):
+                    continue
+                skip_reason = self._auto_rag_skip_reason(candidate, payload=run_payload)
+                if skip_reason:
+                    items.append(
+                        PolicyCrawlerBatchPublishItem(
+                            candidate_id=candidate.candidate_id,
+                            status="skipped",
+                            reason=skip_reason,
+                        )
+                    )
+                    continue
+                items.append(
+                    self._publish_candidate_to_rag_item(
+                        candidate_id=candidate.candidate_id,
+                        reviewed_by_user_id=reviewed_by_user_id,
+                        skip_duplicates=payload.auto_rag_ingest_skip_duplicate,
+                    )
+                )
+
+        crawled_runs: list[PolicyCrawlerRunSummary] = []
+        if payload.crawl_enabled_sources and payload.max_sources > 0:
+            selected_sources = self._select_sources_for_active_maintenance(payload)
+            for source in selected_sources[: payload.max_sources]:
+                try:
+                    run = self.run_policy_crawler_source(
+                        source_id=source.source_id,
+                        requested_by_user_id=reviewed_by_user_id,
+                        payload=run_payload,
+                    )
+                    crawled_runs.append(run)
+                except Exception as exc:  # noqa: BLE001
+                    warnings.append(f"{source.source_id}: {exc}")
+
+        published = sum(1 for item in items if item.status == "published")
+        failed = sum(1 for item in items if item.status == "failed")
+        status = "partial" if failed or warnings else "succeeded"
+        if not items and not crawled_runs and not warnings:
+            status = "skipped"
+        return PolicyCrawlerActiveMaintenanceResponse(
+            status=status,
+            retried_count=len(items),
+            retry_published_count=published,
+            retry_skipped_count=sum(1 for item in items if item.status == "skipped"),
+            retry_failed_count=failed,
+            crawled_source_count=len(crawled_runs),
+            crawled_runs=crawled_runs,
+            items=items,
+            target_kb_id=self._auto_crawler_target_kb_id(),
+            target_kb_name="自动爬虫知识库",
+            warnings=warnings,
+        )
+
     def get_policy_crawler_auto_rag_kb_status(self) -> PolicyCrawlerAutoRagKbStatus:
         from app.rag.kb.crawler_bridge import AUTO_CRAWLER_RAG_KB_NAME, OFFICIAL_POLICY_RAG_KB_NAME, SYSTEM_POLICY_CRAWLER_USER_ID
         from app.rag.spine import get_rag_spine_service
@@ -769,6 +851,8 @@ class AdminService:
         metadata = candidate.metadata
         if candidate.status == "rejected":
             return "rejected_candidate"
+        if metadata.get("rag_doc_id") and metadata.get("rag_pipeline_status") == "indexed" and int(metadata.get("rag_indexed_chunk_count") or 0) > 0:
+            return "already_indexed"
         if payload.auto_rag_ingest_skip_duplicate and metadata.get("skip_reason") == "duplicate_content_hash":
             if metadata.get("rag_doc_id"):
                 return "already_indexed"
@@ -829,6 +913,52 @@ class AdminService:
             return self.get_policy_crawler_auto_rag_kb_status().kb_id
         except Exception:
             return None
+
+    @staticmethod
+    def _maintenance_run_payload(payload: PolicyCrawlerActiveMaintenanceRequest) -> PolicyCrawlerRunRequest:
+        return PolicyCrawlerRunRequest(
+            auto_rag_ingest_enabled=True,
+            auto_rag_ingest_min_quality=payload.auto_rag_ingest_min_quality,
+            auto_rag_ingest_min_extraction=payload.auto_rag_ingest_min_extraction,
+            auto_rag_ingest_min_markdown_size=payload.auto_rag_ingest_min_markdown_size,
+            auto_rag_ingest_skip_duplicate=payload.auto_rag_ingest_skip_duplicate,
+        )
+
+    @staticmethod
+    def _candidate_needs_rag_ingestion_retry(candidate) -> bool:
+        metadata = candidate.metadata
+        if candidate.status != "pending_review":
+            return False
+        if metadata.get("rag_doc_id") and metadata.get("rag_pipeline_status") == "indexed" and int(metadata.get("rag_indexed_chunk_count") or 0) > 0:
+            return False
+        if metadata.get("rag_pipeline_status") in {None, "", "failed"}:
+            return True
+        if int(metadata.get("rag_indexed_chunk_count") or metadata.get("indexed_chunk_count") or 0) <= 0:
+            return True
+        if metadata.get("rag_search_smoke_passed") is False:
+            return True
+        return False
+
+    def _select_sources_for_active_maintenance(self, payload: PolicyCrawlerActiveMaintenanceRequest):
+        scheduler = get_policy_crawler_scheduler()
+        source_ids = {item.strip() for item in payload.source_ids if item.strip()}
+        domains = {item.strip().lower().lstrip(".") for item in payload.domains if item.strip()}
+        selected = []
+        for source in scheduler.list_sources():
+            if not source.is_enabled:
+                continue
+            source_domain = source.allowed_domain.lower().lstrip(".")
+            explicit_match = (source.source_id in source_ids) or (source_domain in domains)
+            metadata_enabled = bool(source.metadata.get("active_relay_auto_update_enabled"))
+            never_crawled = source.last_run_at is None
+            if source_ids or domains:
+                if explicit_match:
+                    selected.append(source)
+                continue
+            if metadata_enabled and never_crawled:
+                selected.append(source)
+        selected.sort(key=lambda item: int(item.metadata.get("priority") or 50), reverse=True)
+        return selected
 
     def reject_policy_crawler_candidate(
         self,
