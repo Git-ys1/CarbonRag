@@ -220,6 +220,14 @@ class AuthService:
                     ("super_admin", updated_at, user_id),
                 )
 
+    @staticmethod
+    def _row_value(row, key: str, index: int = 0):
+        if hasattr(row, "keys") and key in row.keys():
+            return row[key]
+        if isinstance(row, dict) and key in row:
+            return row[key]
+        return row[index]
+
     def promote_temporary_super_admin(self, user_id: str, *, max_active_super_admins: int = 2) -> AuthenticatedUser:
         current_row = self._fetch_user_by_id(user_id)
         if current_row is None:
@@ -231,8 +239,11 @@ class AuthService:
         with self._connect() as connection:
             if self.backend_kind == "postgresql":
                 with connection.cursor() as cursor:
-                    cursor.execute("SELECT COUNT(*) FROM users WHERE role = %s AND is_active = TRUE", ("super_admin",))
-                    active_count = int(cursor.fetchone()[0])
+                    cursor.execute(
+                        "SELECT COUNT(*) AS active_count FROM users WHERE role = %s AND is_active = TRUE",
+                        ("super_admin",),
+                    )
+                    active_count = int(self._row_value(cursor.fetchone(), "active_count"))
             else:
                 active_count = int(
                     connection.execute(
@@ -282,7 +293,7 @@ class AuthService:
                         """,
                         ("super_admin", seed_user_id),
                     )
-                    super_admin_ids = [str(row[0]) for row in cursor.fetchall()]
+                    super_admin_ids = [str(self._row_value(row, "user_id")) for row in cursor.fetchall()]
                     demote_ids = super_admin_ids[2:]
                     if not demote_ids:
                         return
