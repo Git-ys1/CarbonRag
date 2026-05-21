@@ -68,6 +68,11 @@ runtime/
 /3rdparty/*
 !/3rdparty/.gitkeep
 
+# Local research/demo materials
+/docs/碳核算专项/
+/演示/
+/docs/PLAN/V1.7.2B.md
+
 # Local accidental nested checkout / migration scratch space
 /CarbonRag/
 
