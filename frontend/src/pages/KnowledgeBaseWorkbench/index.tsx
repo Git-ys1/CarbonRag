@@ -18,11 +18,13 @@ import {
     chunkKbDocument,
     createKbDocument,
     createKnowledgeBase,
+    deleteKbDocument,
     indexKbDocument,
     listKbDocumentChunks,
     listKbDocuments,
     listKnowledgeBases,
     parseKbDocument,
+    rebuildKbDocumentIndex,
     runKbDocumentPipeline,
     runKbDocumentPipelineBatch,
     uploadKbDocument,
@@ -196,6 +198,50 @@ export function KnowledgeBaseWorkbench() {
         }
         setActiveDocId(doc.doc_id);
         setChunks(await listKbDocumentChunks(activeKbId, doc.doc_id));
+    }
+
+    async function handleDeleteDocument(doc: RagDocument) {
+        if (!activeKbId) {
+            return;
+        }
+        const confirmed = window.confirm(`确认删除文档“${doc.title}”？这会同步删除该文档片段和向量，不影响同知识库其他文档。`);
+        if (!confirmed) {
+            return;
+        }
+        setRunningStage(`${doc.doc_id}:delete`);
+        setError(null);
+        try {
+            await deleteKbDocument(activeKbId, doc.doc_id);
+            const nextDocs = documents.filter((item) => item.doc_id !== doc.doc_id);
+            setDocuments(nextDocs);
+            const nextDocId = nextDocs[0]?.doc_id;
+            setActiveDocId(nextDocId);
+            setChunks(nextDocId ? await listKbDocumentChunks(activeKbId, nextDocId) : []);
+            setKbs(await listKnowledgeBases());
+        } catch {
+            setError("删除文档失败。系统自动维护知识库或共享知识库可能是只读的。");
+        } finally {
+            setRunningStage(null);
+        }
+    }
+
+    async function handleRebuildDocumentIndex(doc: RagDocument) {
+        if (!activeKbId) {
+            return;
+        }
+        setRunningStage(`${doc.doc_id}:rebuild-index`);
+        setError(null);
+        try {
+            const next = await rebuildKbDocumentIndex(activeKbId, doc.doc_id);
+            setDocuments((current) => current.map((item) => item.doc_id === next.doc_id ? next : item));
+            setActiveDocId(next.doc_id);
+            setChunks(await listKbDocumentChunks(activeKbId, next.doc_id));
+            setKbs(await listKnowledgeBases());
+        } catch {
+            setError("重建索引失败。请确认文档已分块，且 Milvus / BGE 模型可用。");
+        } finally {
+            setRunningStage(null);
+        }
     }
 
     async function runDocStage(doc: RagDocument, stage: StageName) {
@@ -402,6 +448,43 @@ export function KnowledgeBaseWorkbench() {
                 </Card>
             </div>
 
+            <Card className="admin-panel-card kb-console__folder-card" title="知识库文件夹">
+                <List
+                    grid={{ gutter: 12, xs: 1, sm: 2, lg: 3, xl: 4 }}
+                    dataSource={kbs}
+                    locale={{ emptyText: <Empty description="暂无知识库文件夹。" /> }}
+                    renderItem={(kb) => (
+                        <List.Item>
+                            <Card
+                                size="small"
+                                hoverable
+                                className={kb.kb_id === activeKbId ? "kb-folder-card kb-folder-card--active" : "kb-folder-card"}
+                                onClick={() => setActiveKbId(kb.kb_id)}
+                            >
+                                <Space direction="vertical" size={8} style={{ width: "100%" }}>
+                                    <Space wrap>
+                                        <DatabaseOutlined />
+                                        <Typography.Text strong ellipsis style={{ maxWidth: 180 }}>{kb.name}</Typography.Text>
+                                        {kb.system_managed ? <Tag color="green">系统自动维护</Tag> : null}
+                                        {kb.visibility === "shared" ? <Tag color="blue">共享</Tag> : <Tag>个人</Tag>}
+                                    </Space>
+                                    <Typography.Text type="secondary">
+                                        {kb.document_count ?? 0} 文档 · {kb.indexed_chunk_count ?? 0}/{kb.chunk_count ?? 0} 片段已入库
+                                    </Typography.Text>
+                                    <Space wrap>
+                                        <Tag color={kb.health_status === "healthy" ? "green" : kb.health_status === "failed" ? "red" : "default"}>
+                                            {kb.health_status ?? "unknown"}
+                                        </Tag>
+                                        <Tag>{kb.kb_scope ?? (kb.system_managed ? "system" : "personal")}</Tag>
+                                        {kb.managed_by ? <Tag>{kb.managed_by}</Tag> : null}
+                                    </Space>
+                                </Space>
+                            </Card>
+                        </List.Item>
+                    )}
+                />
+            </Card>
+
             <div className="kb-console__workspace-grid">
                 <Card
                     className="admin-panel-card kb-console__documents-card"
@@ -472,6 +555,30 @@ export function KnowledgeBaseWorkbench() {
                                                             }}
                                                         >
                                                             查看文件
+                                                        </Button>
+                                                        <Button
+                                                            size="small"
+                                                            type="link"
+                                                            loading={runningStage === `${doc.doc_id}:rebuild-index`}
+                                                            onClick={(event) => {
+                                                                event.stopPropagation();
+                                                                void handleRebuildDocumentIndex(doc);
+                                                            }}
+                                                        >
+                                                            重建索引
+                                                        </Button>
+                                                        <Button
+                                                            size="small"
+                                                            type="link"
+                                                            danger
+                                                            loading={runningStage === `${doc.doc_id}:delete`}
+                                                            disabled={Boolean(activeKb?.system_managed)}
+                                                            onClick={(event) => {
+                                                                event.stopPropagation();
+                                                                void handleDeleteDocument(doc);
+                                                            }}
+                                                        >
+                                                            删除
                                                         </Button>
                                                     </Space>
                                                 </Space>
@@ -545,6 +652,8 @@ export function KnowledgeBaseWorkbench() {
                                                 </Button>
                                                 <Button onClick={() => handleLoadChunks(activeDoc)}>查看片段</Button>
                                                 <Button onClick={() => setFilePreviewTarget({ sourceType: "rag_document", sourceId: activeDoc.doc_id, kbId: activeDoc.kb_id })}>查看文件</Button>
+                                                <Button loading={runningStage === `${activeDoc.doc_id}:rebuild-index`} onClick={() => void handleRebuildDocumentIndex(activeDoc)}>重建索引</Button>
+                                                <Button danger loading={runningStage === `${activeDoc.doc_id}:delete`} onClick={() => void handleDeleteDocument(activeDoc)}>删除文档</Button>
                                             </Space>
                                             {pipelineResult ? <PipelineResultAlert result={pipelineResult} /> : null}
                                         </Space>

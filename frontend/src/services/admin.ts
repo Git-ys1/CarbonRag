@@ -19,6 +19,9 @@ import type {
     PolicyCrawlerCandidatePage,
     PolicyCrawlerCandidateSummary,
     PolicyCrawlerDryRunSummary,
+    PolicyCrawlerMaintenanceRunPage,
+    PolicyCrawlerMaintenanceRunSummary,
+    PolicyCrawlerMaintenanceStatus,
     PolicyCrawlerRunPage,
     PolicyCrawlerRunRequest,
     PolicyCrawlerRecommendedImportSummary,
@@ -232,6 +235,34 @@ export async function listPolicyCrawlerCandidates(params: {
 export async function getPolicyCrawlerAutoRagKbStatus() {
     const response = await httpClient.get<PolicyCrawlerAutoRagKbStatus>(
         "/v1/admin/policy-crawler/auto-rag-kb/status",
+    );
+    return response.data;
+}
+
+export async function getPolicyCrawlerActiveMaintenanceStatus() {
+    const response = await httpClient.get<PolicyCrawlerMaintenanceStatus>(
+        "/v1/admin/policy-crawler/active-maintenance/status",
+    );
+    return response.data;
+}
+
+export async function listPolicyCrawlerMaintenanceRuns(params: { status?: string; page?: number; pageSize?: number } = {}) {
+    const response = await httpClient.get<PolicyCrawlerMaintenanceRunPage>(
+        "/v1/admin/policy-crawler/maintenance-runs",
+        {
+            params: {
+                status: params.status,
+                page: params.page,
+                page_size: params.pageSize,
+            },
+        },
+    );
+    return response.data;
+}
+
+export async function getPolicyCrawlerMaintenanceRun(maintenanceRunId: string) {
+    const response = await httpClient.get<PolicyCrawlerMaintenanceRunSummary>(
+        `/v1/admin/policy-crawler/maintenance-runs/${encodeURIComponent(maintenanceRunId)}`,
     );
     return response.data;
 }

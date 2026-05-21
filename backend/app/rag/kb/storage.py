@@ -16,7 +16,7 @@ from app.knowledge.schemas import KnowledgeItemListFilters
 from app.rag.documents.chunking import recursive_chunk_text
 from app.rag.documents.status import resolve_document_status
 from app.rag.embeddings import RagEmbeddingUnavailable, embed_documents
-from app.rag.kb.models import KnowledgeBase, KnowledgeBaseCreate, KnowledgeBaseUpdate, RagChunk, RagDocument, RagEvalRun
+from app.rag.kb.models import KnowledgeBase, KnowledgeBaseCreate, KnowledgeBaseOverview, KnowledgeBaseUpdate, RagChunk, RagDocument, RagEvalRun
 from app.rag.retrieval.dense import get_vector_store
 from app.rag.vector_backend.base import VectorIndexResult
 from app.rag.vector_backend.runtime import is_milvus_backend, resolve_vector_runtime
@@ -114,7 +114,7 @@ class RagKnowledgeStore:
             """,
             [owner_user_id],
         )
-        return [self._row_to_kb(row) for row in rows]
+        return [self._enrich_kb_summary(self._row_to_kb(row)) for row in rows]
 
     def get_kb(self, *, owner_user_id: str, kb_id: str) -> KnowledgeBase | None:
         rows = self._select(
@@ -124,7 +124,7 @@ class RagKnowledgeStore:
             """,
             [kb_id, owner_user_id],
         )
-        return self._row_to_kb(rows[0]) if rows else None
+        return self._enrich_kb_summary(self._row_to_kb(rows[0])) if rows else None
 
     def update_kb(self, *, owner_user_id: str, kb_id: str, payload: KnowledgeBaseUpdate) -> KnowledgeBase:
         kb = self.get_kb(owner_user_id=owner_user_id, kb_id=kb_id)
@@ -168,6 +168,15 @@ class RagKnowledgeStore:
         kb = self.get_kb(owner_user_id=owner_user_id, kb_id=kb_id)
         if kb is None:
             raise KeyError(kb_id)
+        if kb.owner_user_id is None and self._is_system_kb(kb):
+            self._execute(
+                "UPDATE rag_knowledge_bases SET owner_user_id = {p}, updated_at = {p} WHERE kb_id = {p}",
+                [owner_user_id, self.utcnow().isoformat(), kb.kb_id],
+            )
+            kb = self.get_kb(owner_user_id=owner_user_id, kb_id=kb_id)
+            if kb is None:
+                raise KeyError(kb_id)
+        self._ensure_kb_writable(kb=kb, owner_user_id=owner_user_id)
         now = self.utcnow().isoformat()
         doc_id = f"rag-doc-{uuid4().hex[:12]}"
         knowledge_item_id = _optional_str(payload.get("knowledge_item_id"))
@@ -260,13 +269,43 @@ class RagKnowledgeStore:
         )
         return [self._row_to_document(row) for row in rows]
 
+    def get_kb_overview(self, *, owner_user_id: str, kb_id: str) -> KnowledgeBaseOverview:
+        kb = self.require_kb(owner_user_id=owner_user_id, kb_id=kb_id)
+        documents = self.list_documents(owner_user_id=owner_user_id, kb_id=kb_id)
+        failed_count = sum(1 for doc in documents if doc.status == "failed" or bool(doc.error_stage))
+        pending_count = sum(1 for doc in documents if doc.index_status != "indexed")
+        return KnowledgeBaseOverview(
+            kb=kb,
+            documents=documents,
+            document_count=len(documents),
+            chunk_count=sum(doc.chunk_count for doc in documents),
+            indexed_chunk_count=sum(doc.indexed_chunk_count for doc in documents),
+            failed_document_count=failed_count,
+            pending_document_count=pending_count,
+            last_ingested_at=kb.last_ingested_at,
+            health_status=kb.health_status,
+            system_managed=kb.system_managed,
+            read_only=kb.owner_user_id != owner_user_id or kb.system_managed,
+        )
+
     def get_document(self, *, owner_user_id: str, kb_id: str, doc_id: str) -> RagDocument | None:
         self.require_kb(owner_user_id=owner_user_id, kb_id=kb_id)
         rows = self._select("SELECT * FROM rag_documents WHERE kb_id = {p} AND doc_id = {p}", [kb_id, doc_id])
         return self._row_to_document(rows[0]) if rows else None
 
+    def delete_document(self, *, owner_user_id: str, kb_id: str, doc_id: str, vector_backend: str = "memory") -> None:
+        doc = self._require_document(owner_user_id=owner_user_id, kb_id=kb_id, doc_id=doc_id)
+        self._ensure_document_writable(doc=doc, owner_user_id=owner_user_id)
+        try:
+            get_vector_store(vector_backend).delete_document(kb_id=kb_id, doc_id=doc_id)
+        except Exception:
+            pass
+        self._execute("DELETE FROM rag_chunks WHERE kb_id = {p} AND doc_id = {p}", [kb_id, doc_id])
+        self._execute("DELETE FROM rag_documents WHERE kb_id = {p} AND doc_id = {p}", [kb_id, doc_id])
+
     def parse_document(self, *, owner_user_id: str, kb_id: str, doc_id: str) -> RagDocument:
         doc = self._require_document(owner_user_id=owner_user_id, kb_id=kb_id, doc_id=doc_id)
+        self._ensure_document_writable(doc=doc, owner_user_id=owner_user_id)
         parse_status = "parsed"
         error = None
         metadata = dict(doc.metadata)
@@ -332,6 +371,7 @@ class RagKnowledgeStore:
 
     def chunk_document(self, *, owner_user_id: str, kb_id: str, doc_id: str) -> RagDocument:
         doc = self._require_document(owner_user_id=owner_user_id, kb_id=kb_id, doc_id=doc_id)
+        self._ensure_document_writable(doc=doc, owner_user_id=owner_user_id)
         kb = self.require_kb(owner_user_id=owner_user_id, kb_id=kb_id)
         texts: list[tuple[str, dict[str, Any], str | None]] = []
         if doc.knowledge_item_id:
@@ -447,6 +487,7 @@ class RagKnowledgeStore:
 
     def index_document(self, *, owner_user_id: str, kb_id: str, doc_id: str, vector_backend: str = "memory") -> RagDocument:
         doc = self._require_document(owner_user_id=owner_user_id, kb_id=kb_id, doc_id=doc_id)
+        self._ensure_document_writable(doc=doc, owner_user_id=owner_user_id)
         chunks = self.list_chunks(owner_user_id=owner_user_id, kb_id=kb_id, doc_id=doc_id)
         if not chunks:
             doc = self.chunk_document(owner_user_id=owner_user_id, kb_id=kb_id, doc_id=doc_id)
@@ -900,6 +941,70 @@ class RagKnowledgeStore:
         if doc is None:
             raise KeyError(doc_id)
         return doc
+
+    @staticmethod
+    def _is_system_kb(kb: KnowledgeBase) -> bool:
+        return bool(kb.metadata.get("system_managed")) or kb.name in {"自动爬虫知识库", "官方政策自动更新库"}
+
+    def _ensure_kb_writable(self, *, kb: KnowledgeBase, owner_user_id: str) -> None:
+        if kb.owner_user_id != owner_user_id:
+            raise PermissionError("knowledge base is read-only for this user")
+        if self._is_system_kb(kb) and kb.owner_user_id != owner_user_id:
+            raise PermissionError("system-managed knowledge base is read-only")
+
+    def _ensure_document_writable(self, *, doc: RagDocument, owner_user_id: str) -> None:
+        kb = self.require_kb(owner_user_id=owner_user_id, kb_id=doc.kb_id)
+        self._ensure_kb_writable(kb=kb, owner_user_id=owner_user_id)
+        if doc.owner_user_id and doc.owner_user_id != owner_user_id:
+            raise PermissionError("document is read-only for this user")
+
+    def _enrich_kb_summary(self, kb: KnowledgeBase) -> KnowledgeBase:
+        rows = self._select(
+            """
+            SELECT
+                COUNT(*) AS document_count,
+                COALESCE(SUM(chunk_count), 0) AS chunk_count,
+                COALESCE(SUM(indexed_chunk_count), 0) AS indexed_chunk_count,
+                MAX(updated_at) AS last_ingested_at,
+                SUM(CASE WHEN status = 'failed' OR error_stage IS NOT NULL THEN 1 ELSE 0 END) AS failed_count,
+                SUM(CASE WHEN index_status != 'indexed' THEN 1 ELSE 0 END) AS pending_count
+            FROM rag_documents
+            WHERE kb_id = {p}
+            """,
+            [kb.kb_id],
+        )
+        summary = rows[0] if rows else {}
+        document_count = int(summary.get("document_count") or 0)
+        chunk_count = int(summary.get("chunk_count") or 0)
+        indexed_chunk_count = int(summary.get("indexed_chunk_count") or 0)
+        failed_count = int(summary.get("failed_count") or 0)
+        pending_count = int(summary.get("pending_count") or 0)
+        if failed_count:
+            health_status = "failed"
+        elif document_count == 0:
+            health_status = "empty"
+        elif pending_count:
+            health_status = "needs_index"
+        elif indexed_chunk_count > 0:
+            health_status = "healthy"
+        else:
+            health_status = "unknown"
+        system_managed = self._is_system_kb(kb)
+        managed_by = kb.metadata.get("managed_by") or ("policy_crawler" if system_managed else None)
+        kb_scope = kb.metadata.get("kb_scope") or ("system" if system_managed else ("shared" if kb.visibility in {"shared", "public"} else "personal"))
+        last_ingested_at = summary.get("last_ingested_at")
+        return kb.model_copy(
+            update={
+                "system_managed": system_managed,
+                "managed_by": managed_by,
+                "kb_scope": kb_scope,
+                "document_count": document_count,
+                "chunk_count": chunk_count,
+                "indexed_chunk_count": indexed_chunk_count,
+                "last_ingested_at": last_ingested_at,
+                "health_status": health_status,
+            }
+        )
 
     def _mark_document(
         self,

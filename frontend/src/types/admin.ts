@@ -348,6 +348,8 @@ export interface PolicyCrawlerBatchPublishResponse {
 }
 
 export interface PolicyCrawlerActiveMaintenanceRequest {
+    trigger_source?: "manual" | "admin_page" | "login" | "relay";
+    cooldown_minutes?: number;
     retry_failed_ingestion?: boolean;
     crawl_enabled_sources?: boolean;
     source_ids?: string[];
@@ -362,6 +364,9 @@ export interface PolicyCrawlerActiveMaintenanceRequest {
 
 export interface PolicyCrawlerActiveMaintenanceResponse {
     status: "succeeded" | "partial" | "skipped";
+    maintenance_run_id?: string | null;
+    current_stage?: string | null;
+    cooldown_until?: string | null;
     retried_count: number;
     retry_published_count: number;
     retry_skipped_count: number;
@@ -371,6 +376,50 @@ export interface PolicyCrawlerActiveMaintenanceResponse {
     items: PolicyCrawlerBatchPublishItem[];
     target_kb_id: string | null;
     target_kb_name: string | null;
+    warnings: string[];
+}
+
+export interface PolicyCrawlerMaintenanceRunSummary {
+    maintenance_run_id: string;
+    trigger_type: string;
+    triggered_by_user_id: string | null;
+    triggered_by_role: string | null;
+    status: string;
+    current_stage: string | null;
+    target_kb_id: string | null;
+    target_kb_name: string | null;
+    source_count: number;
+    candidate_count: number;
+    published_count: number;
+    skipped_count: number;
+    failed_count: number;
+    started_at: string;
+    finished_at: string | null;
+    cooldown_until: string | null;
+    error_stage: string | null;
+    error_detail: string | null;
+    summary: Record<string, unknown>;
+    warnings: string[];
+    metadata: Record<string, unknown>;
+}
+
+export interface PolicyCrawlerMaintenanceRunPage {
+    items: PolicyCrawlerMaintenanceRunSummary[];
+    total: number;
+    page: number;
+    page_size: number;
+}
+
+export interface PolicyCrawlerMaintenanceStatus {
+    is_running: boolean;
+    current_stage: string | null;
+    last_run: PolicyCrawlerMaintenanceRunSummary | null;
+    last_success: PolicyCrawlerMaintenanceRunSummary | null;
+    last_failure: PolicyCrawlerMaintenanceRunSummary | null;
+    cooldown_until: string | null;
+    target_kb_id: string | null;
+    target_kb_name: string | null;
+    summary: Record<string, unknown>;
     warnings: string[];
 }
 

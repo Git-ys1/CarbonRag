@@ -47,6 +47,7 @@ CORE_TABLES = (
     "policy_crawl_sources",
     "policy_crawl_runs",
     "policy_crawl_candidates",
+    "policy_crawler_maintenance_runs",
 )
 
 OWNER_TABLES = (
@@ -967,6 +968,31 @@ CREATE TABLE IF NOT EXISTS policy_crawl_candidates (
     FOREIGN KEY (reviewed_by_user_id) REFERENCES users(user_id) ON DELETE SET NULL,
     FOREIGN KEY (knowledge_item_id) REFERENCES knowledge_items(knowledge_item_id) ON DELETE SET NULL
 );
+
+CREATE TABLE IF NOT EXISTS policy_crawler_maintenance_runs (
+    maintenance_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    maintenance_run_id TEXT NOT NULL UNIQUE,
+    trigger_type TEXT NOT NULL,
+    triggered_by_user_id TEXT,
+    triggered_by_role TEXT,
+    status TEXT NOT NULL,
+    current_stage TEXT,
+    target_kb_id TEXT,
+    target_kb_name TEXT,
+    source_count INTEGER NOT NULL DEFAULT 0,
+    candidate_count INTEGER NOT NULL DEFAULT 0,
+    published_count INTEGER NOT NULL DEFAULT 0,
+    skipped_count INTEGER NOT NULL DEFAULT 0,
+    failed_count INTEGER NOT NULL DEFAULT 0,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    cooldown_until TEXT,
+    error_stage TEXT,
+    error_detail TEXT,
+    summary_json TEXT,
+    warnings_json TEXT,
+    metadata_json TEXT
+);
 """
 
 SQLITE_INDEX_SCRIPT = """
@@ -1085,6 +1111,10 @@ CREATE INDEX IF NOT EXISTS idx_policy_crawl_candidates_status_created
     ON policy_crawl_candidates(status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_policy_crawl_candidates_source_status
     ON policy_crawl_candidates(source_id, status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_policy_crawler_maintenance_runs_started
+    ON policy_crawler_maintenance_runs(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_policy_crawler_maintenance_runs_status
+    ON policy_crawler_maintenance_runs(status, started_at DESC);
 """
 
 POSTGRES_SCHEMA_STATEMENTS = (
@@ -1969,6 +1999,32 @@ POSTGRES_SCHEMA_STATEMENTS = (
         UNIQUE (source_id, url, content_hash)
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS policy_crawler_maintenance_runs (
+        maintenance_seq BIGSERIAL PRIMARY KEY,
+        maintenance_run_id TEXT NOT NULL UNIQUE,
+        trigger_type TEXT NOT NULL,
+        triggered_by_user_id TEXT,
+        triggered_by_role TEXT,
+        status TEXT NOT NULL,
+        current_stage TEXT,
+        target_kb_id TEXT,
+        target_kb_name TEXT,
+        source_count INTEGER NOT NULL DEFAULT 0,
+        candidate_count INTEGER NOT NULL DEFAULT 0,
+        published_count INTEGER NOT NULL DEFAULT 0,
+        skipped_count INTEGER NOT NULL DEFAULT 0,
+        failed_count INTEGER NOT NULL DEFAULT 0,
+        started_at TEXT NOT NULL,
+        finished_at TEXT,
+        cooldown_until TEXT,
+        error_stage TEXT,
+        error_detail TEXT,
+        summary_json TEXT,
+        warnings_json TEXT,
+        metadata_json TEXT
+    )
+    """,
     "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS owner_user_id TEXT",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name TEXT",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT",
@@ -2133,6 +2189,8 @@ POSTGRES_SCHEMA_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_policy_crawl_runs_source_started ON policy_crawl_runs(source_id, started_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_policy_crawl_candidates_status_created ON policy_crawl_candidates(status, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_policy_crawl_candidates_source_status ON policy_crawl_candidates(source_id, status, updated_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_policy_crawler_maintenance_runs_started ON policy_crawler_maintenance_runs(started_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_policy_crawler_maintenance_runs_status ON policy_crawler_maintenance_runs(status, started_at DESC)",
 )
 
 

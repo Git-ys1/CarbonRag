@@ -1,5 +1,5 @@
 import { httpClient } from "./http";
-import type { KnowledgeBase, RagChunk, RagDocument, RagPipelineBatchResult, RagPipelineMode, RagPipelineResult } from "../types/kb";
+import type { KnowledgeBase, KnowledgeBaseOverview, RagChunk, RagDocument, RagPipelineBatchResult, RagPipelineMode, RagPipelineResult } from "../types/kb";
 
 export async function listKnowledgeBases() {
     const response = await httpClient.get<KnowledgeBase[]>("/v1/kb");
@@ -27,6 +27,11 @@ export async function createKbDocument(kbId: string, payload: { knowledge_item_i
 
 export async function listKbDocuments(kbId: string) {
     const response = await httpClient.get<RagDocument[]>(`/v1/kb/${encodeURIComponent(kbId)}/documents`);
+    return response.data;
+}
+
+export async function getKnowledgeBaseOverview(kbId: string) {
+    const response = await httpClient.get<KnowledgeBaseOverview>(`/v1/kb/${encodeURIComponent(kbId)}/overview`);
     return response.data;
 }
 
@@ -71,6 +76,20 @@ export async function runKbDocumentPipelineBatch(kbId: string, docIds?: string[]
     const response = await httpClient.post<RagPipelineBatchResult>(
         `/v1/kb/${encodeURIComponent(kbId)}/documents/run-pipeline-batch`,
         { ...(docIds ? { doc_ids: docIds } : {}), pipeline_mode: pipelineMode },
+    );
+    return response.data;
+}
+
+export async function deleteKbDocument(kbId: string, docId: string) {
+    const response = await httpClient.delete<{ status: string; kb_id: string; doc_id: string }>(
+        `/v1/kb/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}`,
+    );
+    return response.data;
+}
+
+export async function rebuildKbDocumentIndex(kbId: string, docId: string) {
+    const response = await httpClient.post<RagDocument>(
+        `/v1/kb/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}/rebuild-index`,
     );
     return response.data;
 }

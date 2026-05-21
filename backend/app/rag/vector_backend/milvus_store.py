@@ -18,6 +18,23 @@ class MilvusVectorStoreAdapter(BaseVectorStore):
     backend_name = "milvus"
     dense_dim = 1024
 
+    def delete_document(self, *, kb_id: str, doc_id: str) -> bool:
+        runtime = resolve_vector_runtime()
+        if not kb_id or not doc_id:
+            return False
+        if runtime.degraded:
+            return False
+        client, _, _ = _milvus_client()
+        collection_name = _collection_name(kb_id)
+        if not _has_collection(client, collection_name):
+            return False
+        client.delete(collection_name=collection_name, filter=f'doc_id == "{_escape_filter_value(doc_id)}"')
+        try:
+            client.flush(collection_name=collection_name)
+        except Exception:
+            pass
+        return True
+
     def index_chunks(self, *, chunks: list[RagChunk], embeddings=None) -> VectorIndexResult:
         start_total = time.perf_counter()
         embedding_ms = 0.0

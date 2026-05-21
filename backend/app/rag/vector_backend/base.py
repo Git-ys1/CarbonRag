@@ -48,6 +48,10 @@ class BaseVectorStore(ABC):
             available=True,
         )
 
+    def delete_document(self, *, kb_id: str, doc_id: str) -> bool:
+        del kb_id, doc_id
+        return False
+
     @abstractmethod
     def search(self, *, query: str, chunks: list[RagChunk], top_k: int) -> VectorSearchResult:
         raise NotImplementedError

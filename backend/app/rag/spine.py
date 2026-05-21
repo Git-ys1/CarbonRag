@@ -11,6 +11,7 @@ from app.core.config import get_settings
 from app.rag.kb.models import (
     KnowledgeBase,
     KnowledgeBaseCreate,
+    KnowledgeBaseOverview,
     KnowledgeBaseUpdate,
     RagAnswerResult,
     RagDocument,
@@ -74,6 +75,9 @@ class RagSpineService:
     def list_documents(self, *, owner_user_id: str, kb_id: str) -> list[RagDocument]:
         return self.store.list_documents(owner_user_id=owner_user_id, kb_id=kb_id)
 
+    def get_kb_overview(self, *, owner_user_id: str, kb_id: str) -> KnowledgeBaseOverview:
+        return self.store.get_kb_overview(owner_user_id=owner_user_id, kb_id=kb_id)
+
     def get_document(self, *, owner_user_id: str, kb_id: str, doc_id: str) -> RagDocument:
         doc = self.store.get_document(owner_user_id=owner_user_id, kb_id=kb_id, doc_id=doc_id)
         if doc is None:
@@ -93,6 +97,20 @@ class RagSpineService:
             doc_id=doc_id,
             vector_backend=self._effective_vector_backend(),
         )
+
+    def delete_document(self, *, owner_user_id: str, kb_id: str, doc_id: str) -> None:
+        return self.store.delete_document(
+            owner_user_id=owner_user_id,
+            kb_id=kb_id,
+            doc_id=doc_id,
+            vector_backend=self._effective_vector_backend(),
+        )
+
+    def rebuild_document_index(self, *, owner_user_id: str, kb_id: str, doc_id: str) -> RagDocument:
+        doc = self.get_document(owner_user_id=owner_user_id, kb_id=kb_id, doc_id=doc_id)
+        if doc.chunk_status != "chunked" or doc.chunk_count <= 0:
+            doc = self.chunk_document(owner_user_id=owner_user_id, kb_id=kb_id, doc_id=doc_id)
+        return self.index_document(owner_user_id=owner_user_id, kb_id=kb_id, doc_id=doc_id)
 
     def list_chunks(self, *, owner_user_id: str, kb_id: str, doc_id: str | None = None):
         return self.store.list_chunks(owner_user_id=owner_user_id, kb_id=kb_id, doc_id=doc_id)

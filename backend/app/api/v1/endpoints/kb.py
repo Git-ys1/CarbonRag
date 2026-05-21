@@ -13,6 +13,7 @@ from app.files.service import FileService
 from app.rag.kb.models import (
     KnowledgeBase,
     KnowledgeBaseCreate,
+    KnowledgeBaseOverview,
     KnowledgeBaseUpdate,
     RagChunk,
     RagDocument,
@@ -52,6 +53,17 @@ def get_knowledge_base(
         raise HTTPException(status_code=404, detail="knowledge base not found") from exc
 
 
+@router.get("/{kb_id}/overview", response_model=KnowledgeBaseOverview)
+def get_knowledge_base_overview(
+    kb_id: str,
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
+) -> KnowledgeBaseOverview:
+    try:
+        return get_rag_spine_service().get_kb_overview(owner_user_id=current_user.user_id, kb_id=kb_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="knowledge base not found") from exc
+
+
 @router.patch("/{kb_id}", response_model=KnowledgeBase)
 def update_knowledge_base(
     kb_id: str,
@@ -81,6 +93,8 @@ def create_document(
 ) -> RagDocument:
     try:
         return get_rag_spine_service().create_document(owner_user_id=current_user.user_id, kb_id=kb_id, payload=payload)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="knowledge base or source document not found") from exc
 
@@ -132,6 +146,8 @@ async def upload_document_to_kb(
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="knowledge base not found") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=413, detail=str(exc)) from exc
     except TypeError as exc:
@@ -172,6 +188,8 @@ def parse_document(
 ) -> RagDocument:
     try:
         return get_rag_spine_service().parse_document(owner_user_id=current_user.user_id, kb_id=kb_id, doc_id=doc_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="document not found") from exc
 
@@ -184,6 +202,8 @@ def chunk_document(
 ) -> RagDocument:
     try:
         return get_rag_spine_service().chunk_document(owner_user_id=current_user.user_id, kb_id=kb_id, doc_id=doc_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="document not found") from exc
 
@@ -196,6 +216,8 @@ def index_document(
 ) -> RagDocument:
     try:
         return get_rag_spine_service().index_document(owner_user_id=current_user.user_id, kb_id=kb_id, doc_id=doc_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="document not found") from exc
 
@@ -214,6 +236,8 @@ def run_document_pipeline(
             doc_id=doc_id,
             pipeline_mode=(payload.pipeline_mode if payload else "quick"),
         )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="document not found") from exc
 
@@ -231,8 +255,39 @@ def run_document_pipeline_batch(
             doc_ids=(payload.doc_ids if payload else None),
             pipeline_mode=(payload.pipeline_mode if payload else "quick"),
         )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="knowledge base or document not found") from exc
+
+
+@router.delete("/{kb_id}/documents/{doc_id}")
+def delete_kb_document(
+    kb_id: str,
+    doc_id: str,
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
+) -> dict[str, str]:
+    try:
+        get_rag_spine_service().delete_document(owner_user_id=current_user.user_id, kb_id=kb_id, doc_id=doc_id)
+        return {"status": "deleted", "kb_id": kb_id, "doc_id": doc_id}
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="document not found") from exc
+
+
+@router.post("/{kb_id}/documents/{doc_id}/rebuild-index", response_model=RagDocument)
+def rebuild_kb_document_index(
+    kb_id: str,
+    doc_id: str,
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
+) -> RagDocument:
+    try:
+        return get_rag_spine_service().rebuild_document_index(owner_user_id=current_user.user_id, kb_id=kb_id, doc_id=doc_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="document not found") from exc
 
 
 @router.get("/{kb_id}/documents/{doc_id}/chunks", response_model=list[RagChunk])

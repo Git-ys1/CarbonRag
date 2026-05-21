@@ -1,5 +1,6 @@
+import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,9 @@ from app.admin.schemas import (
     PolicyCrawlerCandidateArtifactsSummary,
     PolicyCrawlerCandidatePage,
     PolicyCrawlerCandidateSummary,
+    PolicyCrawlerMaintenanceRunPage,
+    PolicyCrawlerMaintenanceRunSummary,
+    PolicyCrawlerMaintenanceStatus,
     PolicyCrawlerDryRunSummary,
     PolicyCrawlerRecommendedImportSummary,
     PolicyCrawlerRunPage,
@@ -93,6 +97,30 @@ class AdminService:
         connection = sqlite3.connect(self.sqlite_db_path)
         connection.row_factory = sqlite3.Row
         return connection
+
+    def _format_query(self, query: str) -> str:
+        return query.replace("{p}", "%s" if self.backend_kind == "postgresql" else "?")
+
+    def _select_rows(self, query: str, params: list[object] | None = None) -> list[dict[str, Any]]:
+        sql = self._format_query(query)
+        with self._connect() as connection:
+            if self.backend_kind == "postgresql":
+                with connection.cursor() as cursor:
+                    cursor.execute(sql, params or [])
+                    return [dict(row) for row in cursor.fetchall()]
+            rows = connection.execute(sql, params or []).fetchall()
+            return [dict(row) for row in rows]
+
+    def _execute_statement(self, query: str, params: list[object] | None = None) -> None:
+        sql = self._format_query(query)
+        with self._connect() as connection:
+            if self.backend_kind == "postgresql":
+                with connection.cursor() as cursor:
+                    cursor.execute(sql, params or [])
+                connection.commit()
+                return
+            connection.execute(sql, params or [])
+            connection.commit()
 
     @staticmethod
     def _utcnow() -> datetime:
@@ -702,72 +730,330 @@ class AdminService:
         artifact/quality gates before touching the shared RAG KB.
         """
 
+        if payload.trigger_source != "manual" and payload.cooldown_minutes > 0:
+            cooldown_until = self._active_maintenance_cooldown_until()
+            if cooldown_until and cooldown_until > self._utcnow():
+                return PolicyCrawlerActiveMaintenanceResponse(
+                    status="skipped",
+                    current_stage="cooldown_active",
+                    cooldown_until=cooldown_until,
+                    target_kb_id=self._auto_crawler_target_kb_id(),
+                    target_kb_name="自动爬虫知识库",
+                    warnings=["cooldown_active"],
+                )
+
+        running = self._latest_maintenance_run(status="running")
+        if running is not None:
+            return PolicyCrawlerActiveMaintenanceResponse(
+                status="skipped",
+                maintenance_run_id=running.maintenance_run_id,
+                current_stage=running.current_stage or "running",
+                target_kb_id=running.target_kb_id,
+                target_kb_name=running.target_kb_name or "自动爬虫知识库",
+                warnings=["maintenance_already_running"],
+            )
+
         scheduler = get_policy_crawler_scheduler()
         run_payload = self._maintenance_run_payload(payload)
         items: list[PolicyCrawlerBatchPublishItem] = []
         warnings: list[str] = []
+        maintenance_run_id = f"pcrawl-maint-{uuid4().hex[:12]}"
+        cooldown_until = self._utcnow() + timedelta(minutes=payload.cooldown_minutes)
+        triggered_role = self._user_role(reviewed_by_user_id)
+        target_kb_id = self._auto_crawler_target_kb_id()
+        self._create_maintenance_run(
+            maintenance_run_id=maintenance_run_id,
+            trigger_type=payload.trigger_source,
+            triggered_by_user_id=reviewed_by_user_id,
+            triggered_by_role=triggered_role,
+            target_kb_id=target_kb_id,
+            target_kb_name="自动爬虫知识库",
+            cooldown_until=cooldown_until,
+        )
 
-        if payload.retry_failed_ingestion:
-            candidates, _ = scheduler.store.list_candidates_page(
-                status="pending_review",
-                page=1,
-                page_size=payload.max_candidates,
-                sort_by="updated_at",
-                sort_order="asc",
-            )
-            for candidate in candidates:
-                if not self._candidate_needs_rag_ingestion_retry(candidate):
-                    continue
-                skip_reason = self._auto_rag_skip_reason(candidate, payload=run_payload)
-                if skip_reason:
+        try:
+            if payload.retry_failed_ingestion:
+                self._update_maintenance_stage(maintenance_run_id, "retry_pending_candidates")
+                candidates, _ = scheduler.store.list_candidates_page(
+                    status="pending_review",
+                    page=1,
+                    page_size=payload.max_candidates,
+                    sort_by="updated_at",
+                    sort_order="asc",
+                )
+                for candidate in candidates:
+                    if not self._candidate_needs_rag_ingestion_retry(candidate):
+                        continue
+                    skip_reason = self._auto_rag_skip_reason(candidate, payload=run_payload)
+                    if skip_reason:
+                        items.append(
+                            PolicyCrawlerBatchPublishItem(
+                                candidate_id=candidate.candidate_id,
+                                status="skipped",
+                                reason=skip_reason,
+                            )
+                        )
+                        continue
                     items.append(
-                        PolicyCrawlerBatchPublishItem(
+                        self._publish_candidate_to_rag_item(
                             candidate_id=candidate.candidate_id,
-                            status="skipped",
-                            reason=skip_reason,
+                            reviewed_by_user_id=reviewed_by_user_id,
+                            skip_duplicates=payload.auto_rag_ingest_skip_duplicate,
                         )
                     )
-                    continue
-                items.append(
-                    self._publish_candidate_to_rag_item(
-                        candidate_id=candidate.candidate_id,
-                        reviewed_by_user_id=reviewed_by_user_id,
-                        skip_duplicates=payload.auto_rag_ingest_skip_duplicate,
-                    )
-                )
 
-        crawled_runs: list[PolicyCrawlerRunSummary] = []
-        if payload.crawl_enabled_sources and payload.max_sources > 0:
-            selected_sources = self._select_sources_for_active_maintenance(payload)
-            for source in selected_sources[: payload.max_sources]:
-                try:
-                    run = self.run_policy_crawler_source(
-                        source_id=source.source_id,
-                        requested_by_user_id=reviewed_by_user_id,
-                        payload=run_payload,
-                    )
-                    crawled_runs.append(run)
-                except Exception as exc:  # noqa: BLE001
-                    warnings.append(f"{source.source_id}: {exc}")
+            crawled_runs: list[PolicyCrawlerRunSummary] = []
+            if payload.crawl_enabled_sources and payload.max_sources > 0:
+                self._update_maintenance_stage(maintenance_run_id, "crawl_enabled_sources")
+                selected_sources = self._select_sources_for_active_maintenance(payload)
+                for source in selected_sources[: payload.max_sources]:
+                    try:
+                        run = self.run_policy_crawler_source(
+                            source_id=source.source_id,
+                            requested_by_user_id=reviewed_by_user_id,
+                            payload=run_payload,
+                        )
+                        crawled_runs.append(run)
+                    except Exception as exc:  # noqa: BLE001
+                        warnings.append(f"{source.source_id}: {exc}")
 
-        published = sum(1 for item in items if item.status == "published")
-        failed = sum(1 for item in items if item.status == "failed")
-        status = "partial" if failed or warnings else "succeeded"
-        if not items and not crawled_runs and not warnings:
-            status = "skipped"
-        return PolicyCrawlerActiveMaintenanceResponse(
-            status=status,
-            retried_count=len(items),
-            retry_published_count=published,
-            retry_skipped_count=sum(1 for item in items if item.status == "skipped"),
-            retry_failed_count=failed,
-            crawled_source_count=len(crawled_runs),
-            crawled_runs=crawled_runs,
-            items=items,
-            target_kb_id=self._auto_crawler_target_kb_id(),
-            target_kb_name="自动爬虫知识库",
-            warnings=warnings,
+            published = sum(1 for item in items if item.status == "published")
+            failed = sum(1 for item in items if item.status == "failed")
+            status = "partial" if failed or warnings else "succeeded"
+            if not items and not crawled_runs and not warnings:
+                status = "skipped"
+            summary = {
+                "retried_count": len(items),
+                "retry_published_count": published,
+                "retry_skipped_count": sum(1 for item in items if item.status == "skipped"),
+                "retry_failed_count": failed,
+                "crawled_run_ids": [run.run_id for run in crawled_runs],
+                "crawled_source_count": len(crawled_runs),
+            }
+            self._finish_maintenance_run(
+                maintenance_run_id=maintenance_run_id,
+                status=status,
+                current_stage="finished",
+                source_count=len(crawled_runs),
+                candidate_count=len(items) + sum(run.candidate_count for run in crawled_runs),
+                published_count=published,
+                skipped_count=sum(1 for item in items if item.status == "skipped"),
+                failed_count=failed,
+                summary=summary,
+                warnings=warnings,
+            )
+            return PolicyCrawlerActiveMaintenanceResponse(
+                status=status,
+                maintenance_run_id=maintenance_run_id,
+                current_stage="finished",
+                cooldown_until=cooldown_until,
+                retried_count=len(items),
+                retry_published_count=published,
+                retry_skipped_count=sum(1 for item in items if item.status == "skipped"),
+                retry_failed_count=failed,
+                crawled_source_count=len(crawled_runs),
+                crawled_runs=crawled_runs,
+                items=items,
+                target_kb_id=target_kb_id,
+                target_kb_name="自动爬虫知识库",
+                warnings=warnings,
+            )
+        except Exception as exc:
+            self._finish_maintenance_run(
+                maintenance_run_id=maintenance_run_id,
+                status="failed",
+                current_stage="failed",
+                source_count=0,
+                candidate_count=len(items),
+                published_count=sum(1 for item in items if item.status == "published"),
+                skipped_count=sum(1 for item in items if item.status == "skipped"),
+                failed_count=max(1, sum(1 for item in items if item.status == "failed")),
+                summary={"error": str(exc)},
+                warnings=warnings,
+                error_stage="maintenance_failed",
+                error_detail=str(exc),
+            )
+            raise
+
+    def get_policy_crawler_active_maintenance_status(self) -> PolicyCrawlerMaintenanceStatus:
+        auto_kb = self.get_policy_crawler_auto_rag_kb_status()
+        last_run = self._latest_maintenance_run()
+        running = self._latest_maintenance_run(status="running")
+        last_success = self._latest_maintenance_run(status="succeeded")
+        last_failure = self._latest_maintenance_run(status="partial") or self._latest_maintenance_run(status="failed")
+        cooldown_until = None
+        if last_run and last_run.cooldown_until and last_run.cooldown_until > self._utcnow():
+            cooldown_until = last_run.cooldown_until
+        return PolicyCrawlerMaintenanceStatus(
+            is_running=running is not None,
+            current_stage=(running.current_stage if running else None),
+            last_run=last_run,
+            last_success=last_success,
+            last_failure=last_failure,
+            cooldown_until=cooldown_until,
+            target_kb_id=auto_kb.kb_id,
+            target_kb_name=auto_kb.kb_name,
+            summary=last_run.summary if last_run else {},
+            warnings=last_run.warnings if last_run else [],
         )
+
+    def list_policy_crawler_maintenance_runs_page(self, *, page: int = 1, page_size: int = 20, status: str | None = None) -> PolicyCrawlerMaintenanceRunPage:
+        safe_page = max(1, page)
+        safe_page_size = max(1, min(page_size, 100))
+        where = []
+        params: list[object] = []
+        if status:
+            where.append("status = {p}")
+            params.append(status)
+        where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+        total_rows = self._select_rows(
+            f"SELECT COUNT(*) AS count FROM policy_crawler_maintenance_runs {where_sql}",
+            params,
+        )
+        rows = self._select_rows(
+            f"""
+            SELECT * FROM policy_crawler_maintenance_runs
+            {where_sql}
+            ORDER BY started_at DESC
+            LIMIT {safe_page_size} OFFSET {(safe_page - 1) * safe_page_size}
+            """,
+            params,
+        )
+        return PolicyCrawlerMaintenanceRunPage(
+            items=[self._row_to_maintenance_run(row) for row in rows],
+            total=int(total_rows[0]["count"]) if total_rows else 0,
+            page=safe_page,
+            page_size=safe_page_size,
+        )
+
+    def get_policy_crawler_maintenance_run(self, *, maintenance_run_id: str) -> PolicyCrawlerMaintenanceRunSummary:
+        rows = self._select_rows(
+            "SELECT * FROM policy_crawler_maintenance_runs WHERE maintenance_run_id = {p}",
+            [maintenance_run_id],
+        )
+        if not rows:
+            raise KeyError(maintenance_run_id)
+        return self._row_to_maintenance_run(rows[0])
+
+    def _create_maintenance_run(
+        self,
+        *,
+        maintenance_run_id: str,
+        trigger_type: str,
+        triggered_by_user_id: str | None,
+        triggered_by_role: str | None,
+        target_kb_id: str | None,
+        target_kb_name: str,
+        cooldown_until: datetime,
+    ) -> None:
+        now = self._utcnow().isoformat()
+        self._execute_statement(
+            """
+            INSERT INTO policy_crawler_maintenance_runs (
+                maintenance_run_id, trigger_type, triggered_by_user_id, triggered_by_role,
+                status, current_stage, target_kb_id, target_kb_name, started_at,
+                cooldown_until, summary_json, warnings_json, metadata_json
+            )
+            VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p})
+            """,
+            [
+                maintenance_run_id,
+                trigger_type,
+                triggered_by_user_id,
+                triggered_by_role,
+                "running",
+                "starting",
+                target_kb_id,
+                target_kb_name,
+                now,
+                cooldown_until.isoformat(),
+                "{}",
+                "[]",
+                "{}",
+            ],
+        )
+
+    def _update_maintenance_stage(self, maintenance_run_id: str, current_stage: str) -> None:
+        self._execute_statement(
+            "UPDATE policy_crawler_maintenance_runs SET current_stage = {p} WHERE maintenance_run_id = {p}",
+            [current_stage, maintenance_run_id],
+        )
+
+    def _finish_maintenance_run(
+        self,
+        *,
+        maintenance_run_id: str,
+        status: str,
+        current_stage: str,
+        source_count: int,
+        candidate_count: int,
+        published_count: int,
+        skipped_count: int,
+        failed_count: int,
+        summary: dict[str, Any],
+        warnings: list[str],
+        error_stage: str | None = None,
+        error_detail: str | None = None,
+    ) -> None:
+        self._execute_statement(
+            """
+            UPDATE policy_crawler_maintenance_runs
+            SET status = {p}, current_stage = {p}, source_count = {p}, candidate_count = {p},
+                published_count = {p}, skipped_count = {p}, failed_count = {p},
+                finished_at = {p}, error_stage = {p}, error_detail = {p},
+                summary_json = {p}, warnings_json = {p}
+            WHERE maintenance_run_id = {p}
+            """,
+            [
+                status,
+                current_stage,
+                source_count,
+                candidate_count,
+                published_count,
+                skipped_count,
+                failed_count,
+                self._utcnow().isoformat(),
+                error_stage,
+                error_detail,
+                json.dumps(summary, ensure_ascii=False),
+                json.dumps(warnings, ensure_ascii=False),
+                maintenance_run_id,
+            ],
+        )
+
+    def _latest_maintenance_run(self, *, status: str | None = None) -> PolicyCrawlerMaintenanceRunSummary | None:
+        where = "WHERE status = {p}" if status else ""
+        params: list[object] = [status] if status else []
+        rows = self._select_rows(
+            f"""
+            SELECT * FROM policy_crawler_maintenance_runs
+            {where}
+            ORDER BY started_at DESC
+            LIMIT 1
+            """,
+            params,
+        )
+        return self._row_to_maintenance_run(rows[0]) if rows else None
+
+    def _active_maintenance_cooldown_until(self) -> datetime | None:
+        latest = self._latest_maintenance_run()
+        if latest and latest.cooldown_until:
+            return latest.cooldown_until
+        return None
+
+    def _row_to_maintenance_run(self, row: dict[str, Any]) -> PolicyCrawlerMaintenanceRunSummary:
+        payload = dict(row)
+        payload["summary"] = _json_object(payload.pop("summary_json", None))
+        warnings = _json_value(payload.pop("warnings_json", None), default=[])
+        payload["warnings"] = warnings if isinstance(warnings, list) else []
+        payload["metadata"] = _json_object(payload.pop("metadata_json", None))
+        return PolicyCrawlerMaintenanceRunSummary.model_validate(payload)
+
+    def _user_role(self, user_id: str | None) -> str | None:
+        if not user_id:
+            return None
+        user = next((item for item in self.auth_service.list_users() if item.user_id == user_id), None)
+        return str(user.role) if user else None
 
     def get_policy_crawler_auto_rag_kb_status(self) -> PolicyCrawlerAutoRagKbStatus:
         from app.rag.kb.crawler_bridge import AUTO_CRAWLER_RAG_KB_NAME, OFFICIAL_POLICY_RAG_KB_NAME, SYSTEM_POLICY_CRAWLER_USER_ID
@@ -1290,6 +1576,24 @@ class AdminService:
             summaries.append(f"private_sample={len(private_documents)} docs")
         get_mixed_scope_retriever()
         return "; ".join(summaries) or "no-op"
+
+
+def _json_value(value: object, *, default: object) -> object:
+    if value in (None, ""):
+        return default
+    if isinstance(value, (dict, list)):
+        return value
+    if not isinstance(value, str):
+        return default
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return default
+
+
+def _json_object(value: object) -> dict[str, Any]:
+    parsed = _json_value(value, default={})
+    return parsed if isinstance(parsed, dict) else {}
 
 
 @lru_cache(maxsize=1)

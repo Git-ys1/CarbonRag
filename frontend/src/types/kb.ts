@@ -19,6 +19,14 @@ export interface KnowledgeBase {
     created_at: string;
     updated_at: string;
     metadata?: Record<string, unknown>;
+    system_managed?: boolean;
+    managed_by?: string | null;
+    kb_scope?: string | null;
+    document_count?: number;
+    chunk_count?: number;
+    indexed_chunk_count?: number;
+    last_ingested_at?: string | null;
+    health_status?: string;
 }
 
 export interface RagDocument {
@@ -83,6 +91,20 @@ export interface RagTrace {
     retrieval_mode: RagRetrievalMode;
     kb_id?: string | null;
     timing_trace?: RagTimingTrace;
+}
+
+export interface KnowledgeBaseOverview {
+    kb: KnowledgeBase;
+    documents: RagDocument[];
+    document_count: number;
+    chunk_count: number;
+    indexed_chunk_count: number;
+    failed_document_count: number;
+    pending_document_count: number;
+    last_ingested_at?: string | null;
+    health_status: string;
+    system_managed: boolean;
+    read_only: boolean;
 }
 
 export interface RagHit {

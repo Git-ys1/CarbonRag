@@ -47,12 +47,14 @@ import {
     dryRunPolicyCrawlerSource,
     getAdminFeedbackOverview,
     getAdminSystemStatus,
+    getPolicyCrawlerActiveMaintenanceStatus,
     getPolicyCrawlerAutoRagKbStatus,
     getPolicyCrawlerStatus,
     getPolicyShowcaseRetrievalPreview,
     getPolicyShowcaseStatus,
     listAdminUsers,
     listPolicyCrawlerCandidates,
+    listPolicyCrawlerMaintenanceRuns,
     listPolicyCrawlerRuns,
     listPolicyCrawlerSources,
     listPolicyShowcaseChunks,
@@ -83,6 +85,8 @@ import type {
     PolicyCrawlerAutoRagKbStatus,
     PolicyCrawlerCandidateSummary,
     PolicyCrawlerDryRunSummary,
+    PolicyCrawlerMaintenanceRunSummary,
+    PolicyCrawlerMaintenanceStatus,
     PolicyCrawlerRunSummary,
     PolicyCrawlerSourceSummary,
     PolicyCrawlerSourceUpsertRequest,
@@ -270,6 +274,8 @@ export function AdminPlaceholderPage() {
     const [selectedCrawlerCandidate, setSelectedCrawlerCandidate] = useState<PolicyCrawlerCandidateSummary | null>(null);
     const [crawlerTabKey, setCrawlerTabKey] = useState("sources");
     const [policyCrawlerAutoKbStatus, setPolicyCrawlerAutoKbStatus] = useState<PolicyCrawlerAutoRagKbStatus | null>(null);
+    const [policyCrawlerMaintenanceStatus, setPolicyCrawlerMaintenanceStatus] = useState<PolicyCrawlerMaintenanceStatus | null>(null);
+    const [policyCrawlerMaintenanceRuns, setPolicyCrawlerMaintenanceRuns] = useState<PolicyCrawlerMaintenanceRunSummary[]>([]);
     const [batchPublishingCandidates, setBatchPublishingCandidates] = useState(false);
     const [userSavingId, setUserSavingId] = useState<string | null>(null);
     const [knowledgeItemSavingId, setKnowledgeItemSavingId] = useState<string | null>(null);
@@ -686,7 +692,7 @@ export function AdminPlaceholderPage() {
     }
 
     async function fetchPolicyCrawlerWorkspace() {
-        const [status, sources, runsPage, candidatesPage, autoKbStatus] = await Promise.all([
+        const [status, sources, runsPage, candidatesPage, autoKbStatus, maintenanceStatus, maintenanceRunsPage] = await Promise.all([
             getPolicyCrawlerStatus(),
             listPolicyCrawlerSources(),
             listPolicyCrawlerRuns({ page: policyCrawlerRunPage, pageSize: 20 }),
@@ -701,6 +707,8 @@ export function AdminPlaceholderPage() {
                 pageSize: 20,
             }),
             getPolicyCrawlerAutoRagKbStatus(),
+            getPolicyCrawlerActiveMaintenanceStatus(),
+            listPolicyCrawlerMaintenanceRuns({ page: 1, pageSize: 10 }),
         ]);
         setPolicyCrawlerStatus(status);
         setPolicyCrawlerSources(sources);
@@ -709,6 +717,8 @@ export function AdminPlaceholderPage() {
         setPolicyCrawlerCandidates(candidatesPage.items);
         setPolicyCrawlerCandidateTotal(candidatesPage.total);
         setPolicyCrawlerAutoKbStatus(autoKbStatus);
+        setPolicyCrawlerMaintenanceStatus(maintenanceStatus);
+        setPolicyCrawlerMaintenanceRuns(maintenanceRunsPage.items);
     }
 
     async function runActiveCrawlerMaintenance(options: { sourceId?: string; domain?: string; crawl?: boolean; silent?: boolean } = {}) {
@@ -721,11 +731,13 @@ export function AdminPlaceholderPage() {
         }
         try {
             const result = await runPolicyCrawlerActiveMaintenance({
+                trigger_source: options.silent ? "admin_page" : "manual",
+                cooldown_minutes: options.silent ? 30 : 0,
                 retry_failed_ingestion: true,
-                crawl_enabled_sources: Boolean(options.crawl),
+                crawl_enabled_sources: Boolean(options.crawl || options.silent),
                 source_ids: options.sourceId ? [options.sourceId] : [],
                 domains: options.domain ? [options.domain] : [],
-                max_sources: options.crawl ? 1 : 0,
+                max_sources: options.sourceId || options.domain ? 1 : (options.silent ? 3 : (options.crawl ? 1 : 0)),
                 max_candidates: 20,
                 auto_rag_ingest_min_quality: 60,
                 auto_rag_ingest_min_extraction: 60,
@@ -737,9 +749,7 @@ export function AdminPlaceholderPage() {
             if (!options.silent || result.retry_published_count > 0 || result.crawled_source_count > 0) {
                 message.success(summary);
             }
-            if (result.retry_published_count > 0 || result.crawled_source_count > 0) {
-                await fetchPolicyCrawlerWorkspace();
-            }
+            await fetchPolicyCrawlerWorkspace();
         } catch (error) {
             if (!options.silent) {
                 setErrorMessage(extractDetailMessage(error) ?? "自动爬虫活跃维护失败。");
@@ -766,6 +776,8 @@ export function AdminPlaceholderPage() {
                 nextCrawlerRunsPage,
                 nextCrawlerCandidatesPage,
                 nextCrawlerAutoKbStatus,
+                nextCrawlerMaintenanceStatus,
+                nextCrawlerMaintenanceRunsPage,
             ] = await Promise.all([
                 listAdminUsers(),
                 getAdminFeedbackOverview(),
@@ -778,6 +790,8 @@ export function AdminPlaceholderPage() {
                 listPolicyCrawlerRuns({ page: 1, pageSize: 20 }),
                 listPolicyCrawlerCandidates({ page: 1, pageSize: 20 }),
                 getPolicyCrawlerAutoRagKbStatus(),
+                getPolicyCrawlerActiveMaintenanceStatus(),
+                listPolicyCrawlerMaintenanceRuns({ page: 1, pageSize: 10 }),
             ]);
             setUsers(nextUsers);
             setFeedbackOverview(nextFeedback);
@@ -792,6 +806,8 @@ export function AdminPlaceholderPage() {
             setPolicyCrawlerCandidates(nextCrawlerCandidatesPage.items);
             setPolicyCrawlerCandidateTotal(nextCrawlerCandidatesPage.total);
             setPolicyCrawlerAutoKbStatus(nextCrawlerAutoKbStatus);
+            setPolicyCrawlerMaintenanceStatus(nextCrawlerMaintenanceStatus);
+            setPolicyCrawlerMaintenanceRuns(nextCrawlerMaintenanceRunsPage.items);
             if (nextPolicySources[0]) {
                 setPolicyShowcaseStatus(await fetchPolicyShowcase(nextPolicySources[0].source_id));
             } else {
@@ -2147,9 +2163,14 @@ export function AdminPlaceholderPage() {
                                             <Space direction="vertical" size={12} style={{ width: "100%" }}>
                                                 <Alert
                                                     showIcon
-                                                    type={policyCrawlerAutoKbStatus?.found ? "success" : "info"}
-                                                    message="自动爬虫知识库"
-                                                    description={activeMaintenanceSummary ?? "系统自动维护 / 管理员只读。合格候选通过 quick pipeline 后进入该共享知识库，普通用户可在 AskPage 混合检索中引用。"}
+                                                    type={policyCrawlerMaintenanceStatus?.is_running ? "warning" : (policyCrawlerAutoKbStatus?.found ? "success" : "info")}
+                                                    message={policyCrawlerMaintenanceStatus?.is_running ? "自动爬虫正在维护" : "自动爬虫知识库"}
+                                                    description={
+                                                        activeMaintenanceSummary ??
+                                                        (policyCrawlerMaintenanceStatus?.last_run
+                                                            ? `最近维护：${policyCrawlerMaintenanceStatus.last_run.status} / ${policyCrawlerMaintenanceStatus.last_run.current_stage ?? "已结束"}，入库 ${policyCrawlerMaintenanceStatus.last_run.published_count} 条，跳过 ${policyCrawlerMaintenanceStatus.last_run.skipped_count} 条。`
+                                                            : "系统自动维护 / 管理员只读。管理员或 super admin 活跃时会静默检查并按质量门禁入库。")
+                                                    }
                                                 />
                                                 <Descriptions bordered size="small" column={2}>
                                                     <Descriptions.Item label="KB">
@@ -2169,6 +2190,18 @@ export function AdminPlaceholderPage() {
                                                     </Descriptions.Item>
                                                     <Descriptions.Item label="最近入库">
                                                         {policyCrawlerAutoKbStatus?.latest_ingest_status ?? "暂无"}
+                                                    </Descriptions.Item>
+                                                    <Descriptions.Item label="当前阶段">
+                                                        {policyCrawlerMaintenanceStatus?.current_stage ?? policyCrawlerMaintenanceStatus?.last_run?.current_stage ?? "暂无"}
+                                                    </Descriptions.Item>
+                                                    <Descriptions.Item label="冷却到">
+                                                        {policyCrawlerMaintenanceStatus?.cooldown_until ?? "未进入冷却"}
+                                                    </Descriptions.Item>
+                                                    <Descriptions.Item label="最近成功">
+                                                        {policyCrawlerMaintenanceStatus?.last_success?.started_at ?? "暂无"}
+                                                    </Descriptions.Item>
+                                                    <Descriptions.Item label="最后错误">
+                                                        {policyCrawlerMaintenanceStatus?.last_failure?.error_detail ?? policyCrawlerMaintenanceStatus?.last_failure?.error_stage ?? "暂无"}
                                                     </Descriptions.Item>
                                                 </Descriptions>
                                                 <Space size={8} wrap>
@@ -2193,6 +2226,26 @@ export function AdminPlaceholderPage() {
                                                     scroll={{ y: 360, x: 1200 }}
                                                     tableLayout="fixed"
                                                     locale={{ emptyText: <Empty description="暂无自动入库结果。" /> }}
+                                                />
+                                                <Table
+                                                    rowKey="maintenance_run_id"
+                                                    size="small"
+                                                    columns={[
+                                                        { title: "维护批次", dataIndex: "maintenance_run_id", ellipsis: true, width: 180 },
+                                                        { title: "触发", dataIndex: "trigger_type", width: 100 },
+                                                        { title: "状态", dataIndex: "status", width: 100, render: (value: string) => <Tag color={value === "succeeded" ? "green" : value === "running" ? "blue" : value === "partial" ? "orange" : "default"}>{value}</Tag> },
+                                                        { title: "阶段", dataIndex: "current_stage", width: 160, ellipsis: true },
+                                                        { title: "候选", dataIndex: "candidate_count", width: 80 },
+                                                        { title: "入库", dataIndex: "published_count", width: 80 },
+                                                        { title: "跳过", dataIndex: "skipped_count", width: 80 },
+                                                        { title: "失败", dataIndex: "failed_count", width: 80 },
+                                                        { title: "开始时间", dataIndex: "started_at", width: 190, ellipsis: true },
+                                                    ]}
+                                                    dataSource={policyCrawlerMaintenanceRuns}
+                                                    pagination={false}
+                                                    scroll={{ y: 260, x: 1050 }}
+                                                    tableLayout="fixed"
+                                                    locale={{ emptyText: <Empty description="暂无维护流水线记录。" /> }}
                                                 />
                                             </Space>
                                         ),

@@ -30,6 +30,14 @@ class KnowledgeBase(BaseModel):
     created_at: datetime
     updated_at: datetime
     metadata: dict[str, Any] = Field(default_factory=dict)
+    system_managed: bool = False
+    managed_by: str | None = None
+    kb_scope: str | None = None
+    document_count: int = 0
+    chunk_count: int = 0
+    indexed_chunk_count: int = 0
+    last_ingested_at: datetime | None = None
+    health_status: str = "unknown"
 
 
 class RagDocument(BaseModel):
@@ -61,6 +69,20 @@ class RagDocument(BaseModel):
     created_at: datetime
     updated_at: datetime
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class KnowledgeBaseOverview(BaseModel):
+    kb: KnowledgeBase
+    documents: list[RagDocument] = Field(default_factory=list)
+    document_count: int = 0
+    chunk_count: int = 0
+    indexed_chunk_count: int = 0
+    failed_document_count: int = 0
+    pending_document_count: int = 0
+    last_ingested_at: datetime | None = None
+    health_status: str = "unknown"
+    system_managed: bool = False
+    read_only: bool = False
 
 
 class RagChunk(BaseModel):

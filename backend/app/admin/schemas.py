@@ -426,6 +426,8 @@ class PolicyCrawlerBatchPublishResponse(BaseModel):
 class PolicyCrawlerActiveMaintenanceRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    trigger_source: Literal["manual", "admin_page", "login", "relay"] = "manual"
+    cooldown_minutes: int = Field(default=30, ge=0, le=1440)
     retry_failed_ingestion: bool = True
     crawl_enabled_sources: bool = False
     source_ids: list[str] = Field(default_factory=list, max_length=10)
@@ -440,6 +442,9 @@ class PolicyCrawlerActiveMaintenanceRequest(BaseModel):
 
 class PolicyCrawlerActiveMaintenanceResponse(BaseModel):
     status: Literal["succeeded", "partial", "skipped"] = "succeeded"
+    maintenance_run_id: str | None = None
+    current_stage: str | None = None
+    cooldown_until: datetime | None = None
     retried_count: int = 0
     retry_published_count: int = 0
     retry_skipped_count: int = 0
@@ -449,6 +454,50 @@ class PolicyCrawlerActiveMaintenanceResponse(BaseModel):
     items: list[PolicyCrawlerBatchPublishItem] = Field(default_factory=list)
     target_kb_id: str | None = None
     target_kb_name: str | None = "自动爬虫知识库"
+    warnings: list[str] = Field(default_factory=list)
+
+
+class PolicyCrawlerMaintenanceRunSummary(BaseModel):
+    maintenance_run_id: str
+    trigger_type: str
+    triggered_by_user_id: str | None = None
+    triggered_by_role: str | None = None
+    status: str
+    current_stage: str | None = None
+    target_kb_id: str | None = None
+    target_kb_name: str | None = None
+    source_count: int = 0
+    candidate_count: int = 0
+    published_count: int = 0
+    skipped_count: int = 0
+    failed_count: int = 0
+    started_at: datetime
+    finished_at: datetime | None = None
+    cooldown_until: datetime | None = None
+    error_stage: str | None = None
+    error_detail: str | None = None
+    summary: dict[str, Any] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PolicyCrawlerMaintenanceRunPage(BaseModel):
+    items: list[PolicyCrawlerMaintenanceRunSummary] = Field(default_factory=list)
+    total: int = 0
+    page: int = 1
+    page_size: int = 20
+
+
+class PolicyCrawlerMaintenanceStatus(BaseModel):
+    is_running: bool = False
+    current_stage: str | None = None
+    last_run: PolicyCrawlerMaintenanceRunSummary | None = None
+    last_success: PolicyCrawlerMaintenanceRunSummary | None = None
+    last_failure: PolicyCrawlerMaintenanceRunSummary | None = None
+    cooldown_until: datetime | None = None
+    target_kb_id: str | None = None
+    target_kb_name: str | None = "自动爬虫知识库"
+    summary: dict[str, Any] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
 
 

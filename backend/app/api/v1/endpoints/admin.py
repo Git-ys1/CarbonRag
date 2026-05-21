@@ -21,6 +21,9 @@ from app.admin.schemas import (
     PolicyCrawlerCandidatePage,
     PolicyCrawlerCandidateSummary,
     PolicyCrawlerDryRunSummary,
+    PolicyCrawlerMaintenanceRunPage,
+    PolicyCrawlerMaintenanceRunSummary,
+    PolicyCrawlerMaintenanceStatus,
     PolicyCrawlerRecommendedImportSummary,
     PolicyCrawlerRunPage,
     PolicyCrawlerRunRequest,
@@ -389,6 +392,14 @@ def get_admin_policy_crawler_auto_rag_kb_status(
     return get_admin_service().get_policy_crawler_auto_rag_kb_status()
 
 
+@router.get("/policy-crawler/active-maintenance/status", response_model=PolicyCrawlerMaintenanceStatus)
+def get_admin_policy_crawler_active_maintenance_status(
+    current_user: AuthenticatedUser = Depends(require_management_active_relay),
+) -> PolicyCrawlerMaintenanceStatus:
+    del current_user
+    return get_admin_service().get_policy_crawler_active_maintenance_status()
+
+
 @router.post("/policy-crawler/active-maintenance/run", response_model=PolicyCrawlerActiveMaintenanceResponse)
 def run_admin_policy_crawler_active_maintenance(
     payload: PolicyCrawlerActiveMaintenanceRequest | None = None,
@@ -398,6 +409,29 @@ def run_admin_policy_crawler_active_maintenance(
         reviewed_by_user_id=current_user.user_id,
         payload=payload or PolicyCrawlerActiveMaintenanceRequest(),
     )
+
+
+@router.get("/policy-crawler/maintenance-runs", response_model=PolicyCrawlerMaintenanceRunPage)
+def list_admin_policy_crawler_maintenance_runs(
+    status: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+    current_user: AuthenticatedUser = Depends(require_management_active_relay),
+) -> PolicyCrawlerMaintenanceRunPage:
+    del current_user
+    return get_admin_service().list_policy_crawler_maintenance_runs_page(status=status, page=page, page_size=page_size)
+
+
+@router.get("/policy-crawler/maintenance-runs/{maintenance_run_id}", response_model=PolicyCrawlerMaintenanceRunSummary)
+def get_admin_policy_crawler_maintenance_run(
+    maintenance_run_id: str,
+    current_user: AuthenticatedUser = Depends(require_management_active_relay),
+) -> PolicyCrawlerMaintenanceRunSummary:
+    del current_user
+    try:
+        return get_admin_service().get_policy_crawler_maintenance_run(maintenance_run_id=maintenance_run_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Policy crawler maintenance run not found.")
 
 
 @router.get("/policy-crawler/candidates/{candidate_id}/artifacts", response_model=PolicyCrawlerCandidateArtifactsSummary)
